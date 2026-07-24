@@ -35,6 +35,8 @@ export interface NeoStreamState {
   resposta: NeoAnswer | null;
   motivoParcial: string | null;
   erro: string | null;
+  /** True only when the stream itself stalled (no data at all for a while) — distinct from a normal `erro` the server reported. Lets the UI point the user at "Atualizar" instead of implying the investigation itself failed. */
+  conexaoPerdida: boolean;
 }
 
 const INITIAL_STATE: NeoStreamState = {
@@ -48,13 +50,30 @@ const INITIAL_STATE: NeoStreamState = {
   resposta: null,
   motivoParcial: null,
   erro: null,
+  conexaoPerdida: false,
 };
 
-type Action = { type: "evento"; evento: NeoEvent } | { type: "reset" } | { type: "erro"; mensagem: string };
+/**
+ * No new data (not even a heartbeat) for this long means the connection is
+ * stalled — comfortably larger than NEO_LIMITS.heartbeatIntervalMs (12s) on
+ * the server, so normal jitter never trips it.
+ */
+const WATCHDOG_TIMEOUT_MS = 30_000;
+const WATCHDOG_CHECK_INTERVAL_MS = 5_000;
+
+type Action = { type: "evento"; evento: NeoEvent } | { type: "reset" } | { type: "erro"; mensagem: string } | { type: "conexao_perdida" };
 
 function reduce(state: NeoStreamState, action: Action): NeoStreamState {
   if (action.type === "reset") return INITIAL_STATE;
-  if (action.type === "erro") return { ...state, status: "erro", erro: action.mensagem };
+  if (action.type === "erro") return { ...state, status: "erro", erro: action.mensagem, conexaoPerdida: false };
+  if (action.type === "conexao_perdida") {
+    return {
+      ...state,
+      status: "erro",
+      erro: "A conexão com o Neo foi perdida. Atualize para ver o estado mais recente.",
+      conexaoPerdida: true,
+    };
+  }
 
   const evento = action.evento;
   switch (evento.tipo) {
@@ -95,13 +114,15 @@ function reduce(state: NeoStreamState, action: Action): NeoStreamState {
     case "execucao.cancelada":
       return { ...state, status: "cancelada", confirmacao: null };
     case "execucao.falhou":
-      return { ...state, status: "erro", erro: evento.mensagem, confirmacao: null };
+      return { ...state, status: "erro", erro: evento.mensagem, confirmacao: null, conexaoPerdida: false };
+    case "heartbeat":
+      return state;
     default:
       return state;
   }
 }
 
-async function pumpSseStream(response: Response, dispatch: React.Dispatch<Action>): Promise<void> {
+async function pumpSseStream(response: Response, dispatch: React.Dispatch<Action>, onActivity: () => void): Promise<void> {
   const body = response.body;
   if (!body) return;
   const reader = body.getReader();
@@ -111,6 +132,7 @@ async function pumpSseStream(response: Response, dispatch: React.Dispatch<Action
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
+    onActivity();
     buffer += decoder.decode(value, { stream: true });
 
     let boundary = buffer.indexOf("\n\n");
@@ -148,6 +170,16 @@ export function useNeoStream(conversaId: string | undefined) {
     async (fetchIt: (signal: AbortSignal) => Promise<Response>) => {
       const controller = new AbortController();
       abortRef.current = controller;
+      const lastActivityAt = { current: Date.now() };
+      const watchdog = setInterval(() => {
+        if (Date.now() - lastActivityAt.current > WATCHDOG_TIMEOUT_MS) {
+          dispatch({ type: "conexao_perdida" });
+          controller.abort();
+          // A stalled stream never produced a terminal event — pull the real
+          // state from the server instead of leaving the UI guessing.
+          refreshMensagens();
+        }
+      }, WATCHDOG_CHECK_INTERVAL_MS);
       try {
         const response = await fetchIt(controller.signal);
         if (!response.ok) {
@@ -161,26 +193,30 @@ export function useNeoStream(conversaId: string | undefined) {
           dispatch({ type: "erro", mensagem });
           return;
         }
-        await pumpSseStream(response, dispatch);
+        await pumpSseStream(response, dispatch, () => {
+          lastActivityAt.current = Date.now();
+        });
         refreshMensagens();
       } catch (err) {
         if (controller.signal.aborted) return;
         const mensagem = err instanceof ApiRequestError ? err.message : "Não foi possível concluir a investigação.";
         dispatch({ type: "erro", mensagem });
+      } finally {
+        clearInterval(watchdog);
       }
     },
     [refreshMensagens],
   );
 
   const iniciar = React.useCallback(
-    (mensagem: string, idempotencyKey: string) => {
+    (mensagem: string, idempotencyKey: string, continuarExecucaoId?: string) => {
       if (!conversaId) return;
       dispatch({ type: "reset" });
       void runStream((signal) =>
         fetch(`/api/triad3/neo/conversas/${conversaId}/executar`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mensagem, idempotencyKey }),
+          body: JSON.stringify({ mensagem, idempotencyKey, continuarExecucaoId }),
           signal,
         }),
       );

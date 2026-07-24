@@ -28,3 +28,14 @@ export function requestNeoExecutionCancellation(execucaoId: string): boolean {
   controller.abort();
   return true;
 }
+
+/**
+ * Whether this execution is genuinely still running in this same process.
+ * Reconciliation (src/server/neo/reconciliation.ts) uses this to never race
+ * a live stream — a non-terminal execution not in this registry is either
+ * running on a different instance (leave it alone unless truly stale) or
+ * really orphaned.
+ */
+export function isNeoExecutionRegistered(execucaoId: string): boolean {
+  return activeControllers.has(execucaoId);
+}

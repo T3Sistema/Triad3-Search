@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Menu } from "lucide-react";
+import { Menu, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { ConversationSidebar } from "@/components/neo/conversation-sidebar";
 import { Composer } from "@/components/neo/composer";
 import { NeoEmptyState } from "@/components/neo/neo-empty-state";
@@ -42,6 +43,25 @@ export function NeoPage({ conversaId }: { conversaId?: string }) {
     },
     [conversaId, stream],
   );
+
+  // Reuses completed steps/sources from a previous falhou/parcial execution instead of paying
+  // for the same tool calls again — see buildContinuationSeed in server/neo/orchestrator.ts.
+  const continuar = React.useCallback(
+    (execucaoAnteriorId: string, texto: string) => {
+      const mensagem = texto.trim();
+      if (!mensagem || !conversaId) return;
+      stream.iniciar(mensagem, criarIdempotencyKey(), execucaoAnteriorId);
+    },
+    [conversaId, stream],
+  );
+
+  // The real "Atualizar": pulls the server's current state (which already ran reconciliation on
+  // this same GET) and drops any stale local stream state instead of trusting it forever.
+  const atualizar = React.useCallback(() => {
+    stream.reset();
+    void mensagensQuery.refetch();
+    void conversaQuery.refetch();
+  }, [stream, mensagensQuery, conversaQuery]);
 
   // Bridge from the "no conversation yet" empty state: create + navigate, then auto-send once the
   // [id] route mounts. Deferred via queueMicrotask so the send (itself a state update further down
@@ -143,13 +163,22 @@ export function NeoPage({ conversaId }: { conversaId?: string }) {
             <p className="py-10 text-center text-sm text-text-secondary">Envie uma mensagem para começar esta investigação.</p>
           ) : null}
 
-          {mensagensPersistidas.map((mensagem) =>
-            mensagem.papel === "usuario" ? (
-              <MensagemUsuario key={mensagem.id} conteudo={mensagem.conteudo ?? ""} />
-            ) : (
-              <MensagemAssistente key={mensagem.id} mensagem={mensagem} onAtualizar={() => mensagensQuery.refetch()} />
-            ),
-          )}
+          {mensagensPersistidas.map((mensagem, index) => {
+            if (mensagem.papel === "usuario") {
+              return <MensagemUsuario key={mensagem.id} conteudo={mensagem.conteudo ?? ""} />;
+            }
+            const perguntaAnterior = [...mensagensPersistidas.slice(0, index)].reverse().find((m) => m.papel === "usuario");
+            const textoAnterior = perguntaAnterior?.conteudo ?? "";
+            return (
+              <MensagemAssistente
+                key={mensagem.id}
+                mensagem={mensagem}
+                onAtualizar={atualizar}
+                onTentarNovamente={textoAnterior ? () => enviar(textoAnterior) : undefined}
+                onContinuar={textoAnterior && mensagem.execucaoId ? () => continuar(mensagem.execucaoId!, textoAnterior) : undefined}
+              />
+            );
+          })}
 
           {streamAtiva ? (
             <div className="space-y-3">
@@ -177,8 +206,13 @@ export function NeoPage({ conversaId }: { conversaId?: string }) {
               ) : null}
 
               {stream.state.status === "erro" ? (
-                <div className="rounded-2xl rounded-tl-sm border border-error/30 bg-error-bg p-4 text-sm text-text-primary shadow-sm">
-                  {stream.state.erro ?? "Não foi possível concluir a investigação."}
+                <div className="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-error/30 bg-error-bg p-4 text-sm text-text-primary shadow-sm">
+                  <span>{stream.state.erro ?? "Não foi possível concluir a investigação."}</span>
+                  {stream.state.conexaoPerdida ? (
+                    <Button variant="ghost" size="sm" onClick={atualizar}>
+                      <RefreshCw className="h-4 w-4" /> Atualizar
+                    </Button>
+                  ) : null}
                 </div>
               ) : null}
 

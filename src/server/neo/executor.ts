@@ -8,6 +8,7 @@ import type { NeoPlan } from "@/server/neo/schemas";
 import { describeConfirmation } from "@/server/neo/confirmations";
 import { normalizeThrownError } from "@/server/neo/errors";
 import type { NormalizedFonte } from "@/server/neo/tool-normalizers";
+import type { ExecutionBudget } from "@/server/neo/budget";
 
 export interface EvidenceEntry {
   ferramenta: string;
@@ -27,6 +28,7 @@ export interface PendingCall {
 export interface ExecutorState {
   round: number;
   toolCallsUsed: number;
+  searchCallsUsed: number;
   evidence: EvidenceEntry[];
   executedSignatures: string[];
   fontes: NormalizedFonte[];
@@ -38,6 +40,7 @@ export function createInitialExecutorState(): ExecutorState {
   return {
     round: 0,
     toolCallsUsed: 0,
+    searchCallsUsed: 0,
     evidence: [],
     executedSignatures: [],
     fontes: [],
@@ -48,7 +51,7 @@ export function createInitialExecutorState(): ExecutorState {
 
 export interface EtapaConcluidaInfo {
   resumo: unknown;
-  fontesCount: number;
+  fontes: NormalizedFonte[];
   parcial: boolean;
 }
 
@@ -68,6 +71,8 @@ export type ExecutorOutcome =
 export interface RunExecutorOptions {
   usuarioId: string;
   signal: AbortSignal;
+  /** Wall-clock budget shared across the whole execution — see src/server/neo/budget.ts. */
+  budget: ExecutionBudget;
   resumeState?: ExecutorState;
   /** When resuming a paused execution: the calls to run now that confirmation was granted. */
   resumeConfirmedCalls?: PendingCall[];
@@ -84,7 +89,7 @@ function isTransientMessage(message: string | undefined): boolean {
   return Boolean(message && TRANSIENT_MESSAGES.has(message));
 }
 
-function toolCallSignature(name: string, args: Record<string, unknown>): string {
+export function toolCallSignature(name: string, args: Record<string, unknown>): string {
   const sorted = Object.keys(args)
     .sort()
     .reduce<Record<string, unknown>>((acc, key) => {
@@ -139,7 +144,7 @@ async function runOneCall(
   call: PendingCall,
   state: ExecutorState,
   callbacks: ExecutorCallbacks,
-  ctx: { usuarioId: string; signal: AbortSignal },
+  ctx: { usuarioId: string; signal: AbortSignal; budget: ExecutionBudget },
 ): Promise<void> {
   const tool = getNeoTool(call.name);
   if (!tool) {
@@ -174,7 +179,35 @@ async function runOneCall(
   }
 
   if (state.toolCallsUsed >= NEO_LIMITS.maxToolCalls) return;
+
+  if (call.name === "pesquisar_web" && state.searchCallsUsed >= NEO_LIMITS.maxSearchCalls) {
+    state.evidence.push({
+      ferramenta: call.name,
+      nomePublico: tool.nomePublico,
+      argumentos: args,
+      ok: false,
+      resumo: null,
+      erroPublico: "O limite de pesquisas desta investigação foi atingido.",
+    });
+    return;
+  }
+
+  // No new tool call may start once the tool budget is exhausted — the remaining time is
+  // reserved exclusively for synthesis. Never create a DB step for work that never starts.
+  if (!ctx.budget.hasRoundBudget()) {
+    state.evidence.push({
+      ferramenta: call.name,
+      nomePublico: tool.nomePublico,
+      argumentos: args,
+      ok: false,
+      resumo: null,
+      erroPublico: "O tempo disponível para esta investigação se esgotou antes desta etapa começar.",
+    });
+    return;
+  }
+
   state.toolCallsUsed += 1;
+  if (call.name === "pesquisar_web") state.searchCallsUsed += 1;
   state.executedSignatures.push(signature);
 
   const etapaId = await callbacks.onEtapaIniciada({ nomePublico: tool.nomePublico, ferramentaInterna: call.name, argumentos: args });
@@ -194,7 +227,7 @@ async function runOneCall(
         for (const fonte of result.fontes) {
           if (!state.fontes.some((f) => f.url === fonte.url)) state.fontes.push(fonte);
         }
-        await callbacks.onEtapaConcluida(etapaId, { resumo: result.resumo, fontesCount: result.fontes.length, parcial: result.parcial });
+        await callbacks.onEtapaConcluida(etapaId, { resumo: result.resumo, fontes: result.fontes, parcial: result.parcial });
         return;
       }
       lastErro = result.erroPublico ?? "Não foi possível concluir esta etapa.";
@@ -220,10 +253,11 @@ async function runCalls(
   calls: PendingCall[],
   state: ExecutorState,
   callbacks: ExecutorCallbacks,
-  ctx: { usuarioId: string; signal: AbortSignal },
+  ctx: { usuarioId: string; signal: AbortSignal; budget: ExecutionBudget },
 ): Promise<ExecutorOutcome | null> {
   for (const batch of chunk(calls, NEO_LIMITS.maxParallelTools)) {
     if (ctx.signal.aborted) return { status: "cancelada" };
+    if (!ctx.budget.hasRoundBudget()) break;
     await Promise.all(batch.map((call) => runOneCall(call, state, callbacks, ctx)));
   }
   return null;
@@ -236,7 +270,7 @@ export async function runExecutor(
   options: RunExecutorOptions,
 ): Promise<{ outcome: ExecutorOutcome; state: ExecutorState }> {
   const state = options.resumeState ?? createInitialExecutorState();
-  const ctx = { usuarioId: options.usuarioId, signal: options.signal };
+  const ctx = { usuarioId: options.usuarioId, signal: options.signal, budget: options.budget };
   const tools = buildResponsesTools();
 
   if (options.resumeConfirmedCalls && options.resumeConfirmedCalls.length > 0) {
@@ -248,6 +282,9 @@ export async function runExecutor(
     if (options.signal.aborted) return { outcome: { status: "cancelada" }, state };
     if (state.toolCallsUsed >= NEO_LIMITS.maxToolCalls) {
       return { outcome: { status: "limite_atingido", motivo: "O número máximo de consultas desta investigação foi atingido." }, state };
+    }
+    if (!options.budget.hasRoundBudget()) {
+      return { outcome: { status: "limite_atingido", motivo: "O tempo disponível para esta investigação se esgotou." }, state };
     }
 
     state.round += 1;
@@ -291,6 +328,10 @@ export async function runExecutor(
     if (persistentCall) {
       const descricao = describeConfirmation(persistentCall.name, persistentCall.args);
       return { outcome: { status: "aguardando_confirmacao", pendentes: calls, descricao, ferramentaInterna: persistentCall.name }, state };
+    }
+
+    if (!options.budget.hasRoundBudget()) {
+      return { outcome: { status: "limite_atingido", motivo: "O tempo disponível para esta investigação se esgotou." }, state };
     }
 
     const outcome = await runCalls(calls, state, callbacks, ctx);

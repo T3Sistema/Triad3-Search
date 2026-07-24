@@ -9,15 +9,18 @@ import { NEO_MESSAGE_MAX_LENGTH } from "@/lib/neo/limits";
  */
 export const NEO_LIMITS = {
   /** Max planner/tool-decision rounds within a single execution. */
-  maxRounds: 10,
+  maxRounds: 4,
   /** Max total tool calls (across all rounds) within a single execution. */
-  maxToolCalls: 20,
+  maxToolCalls: 12,
+  /** Max `pesquisar_web` calls within a single execution — the tool most prone to unbounded repetition. */
+  maxSearchCalls: 6,
   /** Max independent tool calls executed concurrently within one round. */
   maxParallelTools: 3,
-  /** Per-tool-call timeout. */
-  toolTimeoutMs: 45_000,
-  /** Wall-clock budget for the whole execution before forcing a partial report. */
-  totalTimeoutMs: 280_000,
+  /**
+   * Wall-clock budget for the whole execution: see src/server/neo/budget.ts
+   * (NEO_EXECUTION_BUDGET) for the actual enforced totals — kept in its own
+   * module because it needs its own testable clock, not just static numbers.
+   */
   /** Max concurrent active executions per user, across all conversations. */
   maxConcurrentExecutionsPerUser: 2,
   /** Only one active execution per conversation at a time. */
@@ -32,6 +35,16 @@ export const NEO_LIMITS = {
   recentMessagesWindow: 12,
   /** Conversation length (message count) that triggers a summary refresh. */
   summaryRefreshThreshold: 20,
+  /** How often the orchestrator writes a heartbeat (DB + SSE event) while an execution is running. */
+  heartbeatIntervalMs: 12_000,
+  /**
+   * Extra grace period added on top of the execution budget's hard deadline
+   * before server-side reconciliation treats a non-terminal execution as
+   * orphaned. Must stay comfortably larger than the gap between the budget's
+   * hard deadline and the route's `maxDuration`, so reconciliation never
+   * races a legitimately still-running instance.
+   */
+  orphanGraceMs: 30_000,
 } as const;
 
 export type NeoLimits = typeof NEO_LIMITS;

@@ -64,6 +64,7 @@ export async function POST(request: Request, ctx: { params: Params }) {
         mensagemTexto: parsed.data.mensagem,
         emitter,
         signal: request.signal,
+        continuarExecucaoId: parsed.data.continuarExecucaoId,
       }).catch(() => {
         emitter.close();
       });

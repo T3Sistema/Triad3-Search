@@ -205,3 +205,154 @@ describe("Neo — fluxo completo mockado (planejamento, etapas, relatório)", ()
     void resolveEtapa;
   });
 });
+
+describe("Neo — recuperação de uma conversa com execução interrompida (incidente)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("never shows 'estava em andamento' for a falhou message reconciled server-side — shows the persisted error and a working Tentar novamente", async () => {
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (url.includes("/conversas/c1") && method === "GET" && !url.includes("mensagens")) {
+        return jsonResponse(200, { id: "c1", usuarioId: "u1", titulo: "Conversa", resumoContexto: null, status: "ativa", criadoEm: "t", atualizadoEm: "t" });
+      }
+      if (url.includes("/mensagens") && method === "GET") {
+        return jsonResponse(200, {
+          data: [
+            { id: "mu1", conversaId: "c1", usuarioId: "u1", papel: "usuario", conteudo: "Investigue a Empresa X a fundo", respostaEstruturada: null, status: "concluida", execucaoId: null, criadoEm: "t1" },
+            {
+              id: "ma1",
+              conversaId: "c1",
+              usuarioId: "u1",
+              papel: "assistente",
+              conteudo: "A execução foi interrompida antes da preparação do relatório.",
+              respostaEstruturada: null,
+              status: "falhou",
+              execucaoId: "exec-incidente",
+              criadoEm: "t2",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderNeoPage();
+
+    // The exact incident text — never the stale "estava em andamento" placeholder.
+    await screen.findByText("A execução foi interrompida antes da preparação do relatório.");
+    expect(screen.queryByText(/estava em andamento/)).not.toBeInTheDocument();
+
+    // Input is free — no spinner, no disabled composer left over from a previous session.
+    const textarea = screen.getByRole("textbox", { name: "Mensagem para o Neo" });
+    expect(textarea).not.toBeDisabled();
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (url.includes("/executar") && method === "POST") {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        expect(body.mensagem).toBe("Investigue a Empresa X a fundo");
+        expect(body.continuarExecucaoId).toBeUndefined();
+        return streamResponse([sseFrame({ tipo: "execucao.iniciada", execucaoId: "e2", mensagemId: "m2" })]);
+      }
+      return jsonResponse(200, { data: [] });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Tentar novamente/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/executar"), expect.objectContaining({ method: "POST" })));
+  });
+
+  it("Continuar investigação posts continuarExecucaoId so the new run seeds from the parcial execution instead of starting from zero", async () => {
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (url.includes("/conversas/c1") && method === "GET" && !url.includes("mensagens")) {
+        return jsonResponse(200, { id: "c1", usuarioId: "u1", titulo: "Conversa", resumoContexto: null, status: "ativa", criadoEm: "t", atualizadoEm: "t" });
+      }
+      if (url.includes("/mensagens") && method === "GET") {
+        return jsonResponse(200, {
+          data: [
+            { id: "mu1", conversaId: "c1", usuarioId: "u1", papel: "usuario", conteudo: "Investigue a Empresa X", respostaEstruturada: null, status: "concluida", execucaoId: null, criadoEm: "t1" },
+            {
+              id: "ma1",
+              conversaId: "c1",
+              usuarioId: "u1",
+              papel: "assistente",
+              conteudo: "9 etapa(s) foram concluídas antes da interrupção.",
+              respostaEstruturada: { ...respostaFinal, status: "parcial" },
+              status: "parcial",
+              execucaoId: "exec-parcial",
+              criadoEm: "t2",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderNeoPage();
+    await screen.findByText("Perfil da Empresa X");
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (url.includes("/executar") && method === "POST") {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        expect(body.continuarExecucaoId).toBe("exec-parcial");
+        return streamResponse([sseFrame({ tipo: "execucao.iniciada", execucaoId: "e3", mensagemId: "m3" })]);
+      }
+      return jsonResponse(200, { data: [] });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Continuar investigação/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/executar"), expect.objectContaining({ method: "POST" })));
+  });
+
+  it("o botão Atualizar realmente busca o estado do servidor — troca 'estava em andamento' pelo estado terminal reconciliado", async () => {
+    let reconciled = false;
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (url.includes("/conversas/c1") && method === "GET" && !url.includes("mensagens")) {
+        return jsonResponse(200, { id: "c1", usuarioId: "u1", titulo: "Conversa", resumoContexto: null, status: "ativa", criadoEm: "t", atualizadoEm: "t" });
+      }
+      if (url.includes("/mensagens") && method === "GET") {
+        // Server-side reconciliation runs on every GET — the second fetch (after "Atualizar")
+        // already reflects the terminal state, exactly like reconcileConversationExecution does.
+        const status = reconciled ? "falhou" : "em_execucao";
+        const conteudo = reconciled ? "A execução foi interrompida antes da preparação do relatório." : null;
+        return jsonResponse(200, {
+          data: [
+            {
+              id: "ma1",
+              conversaId: "c1",
+              usuarioId: "u1",
+              papel: "assistente",
+              conteudo,
+              respostaEstruturada: null,
+              status,
+              execucaoId: "exec-x",
+              criadoEm: "t2",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderNeoPage();
+    await screen.findByText("Esta investigação estava em andamento. Atualize para ver o progresso mais recente.");
+
+    reconciled = true;
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar" }));
+
+    await screen.findByText("A execução foi interrompida antes da preparação do relatório.");
+    expect(screen.queryByText(/estava em andamento/)).not.toBeInTheDocument();
+  });
+});

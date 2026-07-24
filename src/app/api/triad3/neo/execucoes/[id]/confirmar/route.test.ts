@@ -37,6 +37,7 @@ const execucaoRow = {
   totalFerramentas: 1,
   tokensEntrada: null,
   tokensSaida: null,
+  ultimoHeartbeatEm: null,
 };
 
 describe("POST /api/triad3/neo/execucoes/[id]/confirmar", () => {

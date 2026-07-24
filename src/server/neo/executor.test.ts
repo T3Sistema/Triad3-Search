@@ -5,9 +5,8 @@ vi.mock("@/server/neo/limits", () => ({
   NEO_LIMITS: {
     maxRounds: 3,
     maxToolCalls: 6,
+    maxSearchCalls: 4,
     maxParallelTools: 2,
-    toolTimeoutMs: 200,
-    totalTimeoutMs: 60_000,
     maxConcurrentExecutionsPerUser: 2,
     maxActiveExecutionsPerConversation: 1,
     maxMessageLength: 8000,
@@ -15,12 +14,15 @@ vi.mock("@/server/neo/limits", () => ({
     maxToolRetries: 1,
     recentMessagesWindow: 12,
     summaryRefreshThreshold: 20,
+    heartbeatIntervalMs: 12_000,
+    orphanGraceMs: 30_000,
   },
 }));
 
 import { callNeoResponses } from "@/server/neo/client";
 import { NEO_LIMITS } from "@/server/neo/limits";
 import { runExecutor, createInitialExecutorState } from "@/server/neo/executor";
+import { createExecutionBudget } from "@/server/neo/budget";
 import { clearNeoToolRegistryForTests, registerNeoTool, type NeoToolExecutionResult } from "@/server/neo/tool-registry";
 import { z } from "zod";
 
@@ -72,7 +74,7 @@ function callbacks() {
   };
 }
 
-const ctx = { usuarioId: "u1", signal: new AbortController().signal };
+const ctx = { usuarioId: "u1", signal: new AbortController().signal, budget: createExecutionBudget() };
 
 beforeEach(() => {
   clearNeoToolRegistryForTests();
@@ -83,7 +85,7 @@ describe("runExecutor — resposta direta sem ferramenta", () => {
   it("stops after the first round when the model doesn't request any tool", async () => {
     vi.mocked(callNeoResponses).mockResolvedValueOnce(noToolsResponse());
     const cb = callbacks();
-    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(outcome).toEqual({ status: "sem_ferramentas" });
     expect(state.evidence).toHaveLength(0);
     expect(callNeoResponses).toHaveBeenCalledTimes(1);
@@ -106,7 +108,7 @@ describe("runExecutor — uma ferramenta suficiente", () => {
       .mockResolvedValueOnce(noToolsResponse());
 
     const cb = callbacks();
-    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(outcome).toEqual({ status: "sem_ferramentas" });
     expect(state.evidence).toHaveLength(1);
     expect(cb.onEtapaIniciada).toHaveBeenCalledTimes(1);
@@ -147,7 +149,7 @@ describe("runExecutor — descoberta de fonte seguida de captura (encadeamento)"
       .mockResolvedValueOnce(noToolsResponse());
 
     const cb = callbacks();
-    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(outcome).toEqual({ status: "sem_ferramentas" });
     expect(state.evidence.map((e) => e.ferramenta)).toEqual(["pesquisar_web", "capturar_pagina"]);
   });
@@ -184,7 +186,7 @@ describe("runExecutor — chamada paralela", () => {
       .mockResolvedValueOnce(noToolsResponse());
 
     const cb = callbacks();
-    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(state.evidence).toHaveLength(3);
     expect(peakConcurrent).toBeLessThanOrEqual(NEO_LIMITS.maxParallelTools);
   });
@@ -213,7 +215,7 @@ describe("runExecutor — chamada duplicada", () => {
       .mockResolvedValueOnce(noToolsResponse());
 
     const cb = callbacks();
-    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(state.evidence).toHaveLength(2);
     // Both calls run concurrently (same batch); the deduplicated one may finish
@@ -255,7 +257,7 @@ describe("runExecutor — ferramenta falhando e outra sendo utilizada", () => {
       .mockResolvedValueOnce(noToolsResponse());
 
     const cb = callbacks();
-    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(state.evidence).toHaveLength(2);
     expect(state.evidence.find((e) => e.ferramenta === "capturar_pagina")?.ok).toBe(false);
     expect(state.evidence.find((e) => e.ferramenta === "pesquisar_web")?.ok).toBe(true);
@@ -284,7 +286,7 @@ describe("runExecutor — ferramenta falhando e outra sendo utilizada", () => {
     vi.mocked(callNeoResponses).mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { q: "teste" } }])).mockResolvedValueOnce(noToolsResponse());
 
     const cb = callbacks();
-    await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(execute).toHaveBeenCalledTimes(NEO_LIMITS.maxToolRetries + 1);
   });
 
@@ -310,7 +312,7 @@ describe("runExecutor — ferramenta falhando e outra sendo utilizada", () => {
     vi.mocked(callNeoResponses).mockResolvedValueOnce(fakeResponse([{ name: "capturar_pagina", args: { url: "https://a.com" } }])).mockResolvedValueOnce(noToolsResponse());
 
     const cb = callbacks();
-    await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(execute).toHaveBeenCalledTimes(1);
   });
 });
@@ -319,7 +321,7 @@ describe("runExecutor — ferramenta inexistente e argumentos inválidos", () =>
   it("records an unknown tool name as a failed evidence entry instead of throwing", async () => {
     vi.mocked(callNeoResponses).mockResolvedValueOnce(fakeResponse([{ name: "excluir_tudo", args: {} }])).mockResolvedValueOnce(noToolsResponse());
     const cb = callbacks();
-    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(state.evidence[0]?.ok).toBe(false);
     expect(state.evidence[0]?.erroPublico).toContain("desconhecida");
   });
@@ -337,7 +339,7 @@ describe("runExecutor — ferramenta inexistente e argumentos inválidos", () =>
     });
     vi.mocked(callNeoResponses).mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { numeroErrado: 1 } }])).mockResolvedValueOnce(noToolsResponse());
     const cb = callbacks();
-    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(execute).not.toHaveBeenCalled();
     expect(state.evidence[0]?.ok).toBe(false);
   });
@@ -362,8 +364,36 @@ describe("runExecutor — limite atingido", () => {
     });
 
     const cb = callbacks();
-    const { outcome } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { outcome } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(outcome.status).toBe("limite_atingido");
+  });
+
+  it("caps pesquisar_web specifically at maxSearchCalls — the incident's exact failure mode (10 consecutive searches)", async () => {
+    const execute = vi.fn(async (): Promise<NeoToolExecutionResult> => ({ ok: true, resumo: { resultados: [1] }, fontes: [], parcial: false, informacoesAusentes: [] }));
+    registerNeoTool({
+      name: "pesquisar_web" as never,
+      nomePublico: "Pesquisando",
+      description: "d",
+      persistent: false,
+      timeoutMs: 100,
+      parameters: z.object({ q: z.string() }),
+      execute,
+    });
+    // Two distinct queries per round so the search cap (4) is reached before maxRounds (3) would.
+    let n = 0;
+    vi.mocked(callNeoResponses).mockImplementation(async () => {
+      n += 1;
+      return fakeResponse([{ name: "pesquisar_web", args: { q: `consulta-${n}-a` } }, { name: "pesquisar_web", args: { q: `consulta-${n}-b` } }]);
+    });
+
+    const cb = callbacks();
+    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
+    // maxSearchCalls is 4 in this file's mocked NEO_LIMITS — the tool itself never runs a 5th time,
+    // regardless of how many rounds/tool-call budget would otherwise still allow.
+    expect(execute).toHaveBeenCalledTimes(NEO_LIMITS.maxSearchCalls);
+    expect(state.searchCallsUsed).toBe(NEO_LIMITS.maxSearchCalls);
+    const limitada = state.evidence.find((e) => e.erroPublico?.includes("limite de pesquisas"));
+    expect(limitada).toBeTruthy();
   });
 
   it("stops and reports limite_atingido once maxRounds is reached even under maxToolCalls", async () => {
@@ -381,7 +411,7 @@ describe("runExecutor — limite atingido", () => {
     vi.mocked(callNeoResponses).mockImplementation(async () => fakeResponse([{ name: "consultar_creditos", args: {} }]));
 
     const cb = callbacks();
-    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(outcome.status).toBe("limite_atingido");
     expect(state.round).toBe(NEO_LIMITS.maxRounds);
   });
@@ -392,7 +422,7 @@ describe("runExecutor — cancelamento", () => {
     const controller = new AbortController();
     controller.abort();
     const cb = callbacks();
-    const { outcome } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: controller.signal });
+    const { outcome } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: controller.signal, budget: createExecutionBudget() });
     expect(outcome).toEqual({ status: "cancelada" });
     expect(callNeoResponses).not.toHaveBeenCalled();
   });
@@ -418,7 +448,7 @@ describe("runExecutor — cancelamento", () => {
         throw new DOMException("aborted", "AbortError");
       });
     const cb = callbacks();
-    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: controller.signal });
+    const { outcome, state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: controller.signal, budget: createExecutionBudget() });
     expect(outcome).toEqual({ status: "cancelada" });
     expect(state.evidence).toHaveLength(1);
   });
@@ -440,7 +470,7 @@ describe("runExecutor — ação persistente aguardando confirmação", () => {
     vi.mocked(callNeoResponses).mockResolvedValueOnce(fakeResponse([{ name: "monitor_excluir", args: { monitoramentoId: "m1" } }]));
 
     const cb = callbacks();
-    const { outcome } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { outcome } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(outcome.status).toBe("aguardando_confirmacao");
     if (outcome.status === "aguardando_confirmacao") {
       expect(outcome.ferramentaInterna).toBe("monitor_excluir");
@@ -468,6 +498,7 @@ describe("runExecutor — ação persistente aguardando confirmação", () => {
     const { outcome } = await runExecutor(plan, "pergunta", cb, {
       usuarioId: "u1",
       signal: ctx.signal,
+      budget: ctx.budget,
       resumeState: state,
       resumeConfirmedCalls: [{ callId: "c1", name: "monitor_excluir", args: { monitoramentoId: "m1" } }],
     });
@@ -497,7 +528,7 @@ describe("runExecutor — timeout de ferramenta", () => {
     vi.mocked(callNeoResponses).mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { q: "teste" } }])).mockResolvedValueOnce(noToolsResponse());
 
     const cb = callbacks();
-    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(state.evidence[0]?.ok).toBe(false);
   }, 10_000);
 });
@@ -532,7 +563,7 @@ describe("runExecutor — prompt injection vindo de ferramenta", () => {
       .mockResolvedValueOnce(noToolsResponse());
 
     const cb = callbacks();
-    const { outcome } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal });
+    const { outcome } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
     expect(outcome).toEqual({ status: "sem_ferramentas" });
     expect(monitorExecute).not.toHaveBeenCalled();
   });

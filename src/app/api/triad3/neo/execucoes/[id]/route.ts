@@ -3,6 +3,7 @@ import { buscarExecucaoPorId } from "@/server/db/repositories/neo-execucoes";
 import { listarEtapas } from "@/server/db/repositories/neo-etapas";
 import { neoError } from "@/server/neo/errors";
 import { jsonNeoError } from "@/server/neo/http";
+import { reconcileConversationExecution } from "@/server/neo/reconciliation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,8 +15,11 @@ export async function GET(_request: Request, ctx: { params: Params }) {
   if (!auth.ok) return auth.response;
 
   const { id } = await ctx.params;
-  const execucao = await buscarExecucaoPorId(auth.user.id, id);
+  let execucao = await buscarExecucaoPorId(auth.user.id, id);
   if (!execucao) return jsonNeoError(neoError("not_found"));
+
+  await reconcileConversationExecution(execucao.conversaId).catch(() => {});
+  execucao = (await buscarExecucaoPorId(auth.user.id, id)) ?? execucao;
 
   const etapas = await listarEtapas(id);
   return jsonOk({
