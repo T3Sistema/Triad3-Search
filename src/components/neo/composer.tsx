@@ -54,7 +54,7 @@ export function Composer({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Descreva o que você quer investigar…"
+        placeholder="Descreva o que você quer analisar…"
         rows={1}
         maxLength={NEO_MESSAGE_MAX_LENGTH}
         disabled={emExecucao || disabled}

@@ -67,7 +67,7 @@ export function translateService(service?: string | null): string {
 
 export const NEO_EXECUCAO_STATUS_LABELS: Record<string, string> = {
   planejando: "Planejando",
-  executando: "Investigando",
+  executando: "Analisando",
   verificando: "Verificando",
   sintetizando: "Preparando relatório",
   aguardando_confirmacao: "Aguardando confirmação",
@@ -97,9 +97,10 @@ export function translateNeoMensagemStatus(status?: string | null): string {
 }
 
 export const NEO_ANSWER_STATUS_LABELS: Record<string, string> = {
-  completo: "Completo",
+  completo: "Concluído",
   parcial: "Parcial",
   precisa_de_informacao: "Precisa de mais informações",
+  nao_concluido: "Não concluído",
 };
 
 export function translateNeoAnswerStatus(status?: string | null): string {
@@ -151,7 +152,7 @@ export const NEO_LACUNA_TIPO_LABELS: Record<string, string> = {
   nao_confirmado: "Não confirmado",
   contraditorio: "Contraditório",
   pode_ter_mudado: "Pode ter mudado",
-  investigacao_complementar: "Investigação complementar",
+  consulta_complementar: "Consulta complementar",
 };
 
 export function translateLacunaTipo(tipo?: string | null): string {

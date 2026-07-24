@@ -424,14 +424,17 @@ describe("runNeoExecution — limite atingido", () => {
 });
 
 describe("runNeoExecution — falha na síntese com relatório parcial de evidências", () => {
-  it("overrides the synthesizer's generic text-only fallback with the evidence-based report when there's usable evidence", async () => {
+  it("overrides the synthesizer's generic text-only fallback with the evidence-based report when there's a concrete extracted value", async () => {
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "sem_ferramentas" },
       state: {
         round: 1,
-        toolCallsUsed: 1,
+        toolCallsUsed: 2,
         searchCallsUsed: 1,
-        evidence: [{ ferramenta: "pesquisar_web", nomePublico: "Pesquisando na web", argumentos: { q: "x" }, ok: true, resumo: { resultados: [{ url: "https://a.com" }] } }],
+        evidence: [
+          { ferramenta: "pesquisar_web", nomePublico: "Pesquisando na web", argumentos: { q: "x" }, ok: true, resumo: { resultados: [{ url: "https://a.com" }] } },
+          { ferramenta: "extrair_dados", nomePublico: "Extraindo informações", argumentos: { url: "https://a.com" }, ok: true, resumo: { json: { cnpj: "12.345.678/0001-99" } } },
+        ],
         executedSignatures: [],
         fontes: [{ url: "https://a.com" }],
         tokensEntrada: 0,
@@ -459,9 +462,10 @@ describe("runNeoExecution — falha na síntese com relatório parcial de evidê
     const resposta = events.find((e) => e.tipo === "resposta.concluida");
     const answer = resposta && "resposta" in resposta ? resposta.resposta : null;
     // Not the synthesizer's generic "Resposta do Neo" fallback — the deterministic
-    // evidence-based one, which actually names the completed step.
+    // evidence-based one, built from the actual extracted value.
     expect(answer?.titulo).not.toBe("Resposta do Neo");
-    expect(JSON.stringify(answer?.achados)).toContain("Pesquisando na web");
+    expect(JSON.stringify(answer?.achados)).toContain("12.345.678/0001-99");
+    expect(JSON.stringify(answer?.achados)).not.toContain("Pesquisando na web");
     expect(answer?.status).toBe("parcial");
   });
 });
@@ -679,8 +683,10 @@ describe("runNeoExecution — orçamento esgotado (fallback determinístico sem 
     });
     expect(synthesizerMod.synthesizeAnswer).not.toHaveBeenCalled();
     const resposta = events.find((e) => e.tipo === "resposta.concluida");
-    expect(resposta && "resposta" in resposta ? resposta.resposta.status : null).toBe("parcial");
-    expect(resposta && "resposta" in resposta ? JSON.stringify(resposta.resposta.achados) : "").toContain("Pesquisando na web");
+    // Only a plain search ran (no extraction) — never enough for a "parcial" report on its own;
+    // it must render as "nao_concluido", not a fabricated report built from step metadata.
+    expect(resposta && "resposta" in resposta ? resposta.resposta.status : null).toBe("nao_concluido");
+    expect(resposta && "resposta" in resposta ? JSON.stringify(resposta.resposta.achados) : "").not.toContain("Pesquisando na web");
     expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "parcial" }));
   });
 });

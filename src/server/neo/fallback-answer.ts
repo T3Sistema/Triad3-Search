@@ -1,26 +1,34 @@
 import "server-only";
-import { NEO_ANSWER_VERSION, type NeoAnswer, type NeoFonte } from "@/lib/neo/answer";
+import { NEO_ANSWER_VERSION, pruneUnusedFontes, type NeoAchado, type NeoAnswer, type NeoFato, type NeoFonte } from "@/lib/neo/answer";
+import { sanitizeBannedTerms } from "@/lib/neo/sanitize-terms";
+import type { NeoObjetivo } from "@/server/neo/schemas";
 
 /**
  * Deterministic, non-LLM report builder. Used whenever a real synthesis call
  * either can't be attempted (no time left in the budget's synthesis reserve)
  * or fails/times out — and by server-side reconciliation
  * (src/server/neo/reconciliation.ts) for executions whose process died
- * before any synthesis ever ran. Never invents data: every fact comes
- * straight from a persisted tool result or source, so it works from either
- * the live in-memory executor state or rows read back from the database.
+ * before any synthesis ever ran.
  *
- * Follows the same v2 report shape as a real synthesis (achados +
- * respostaDireta + matrizEvidencias, fontes only in the collapsed section) —
- * this must never regress into a bare list of completed tool calls and
- * links, even in its simplest form.
+ * Never treats a tool/step name, a result count, or a link count as a fact —
+ * those are operational metadata, not evidence. The only material this
+ * builder is allowed to use is a *structured* extraction result
+ * (`extrair_dados`'s own `resumo.json`): a real, concrete value with a
+ * traceable origin. When no extraction produced anything concrete, the
+ * report is "nao_concluido" — never a fabricated "parcial" report built out
+ * of step metadata.
  */
 
 export interface FallbackEtapaLike {
+  /** Internal tool name (e.g. "extrair_dados") — used to identify structured extractions. Never shown to the user. */
+  ferramenta: string;
+  /** Friendly display name — kept for compatibility with callers, but never used as report content anymore. */
   nomePublico: string;
   ok: boolean;
   resumo?: unknown;
   erroPublico?: string | null;
+  /** Original tool call arguments, when available — used only to associate an extraction with the source URL it came from. */
+  argumentos?: Record<string, unknown> | null;
 }
 
 export interface FallbackFonteLike {
@@ -38,7 +46,12 @@ const RESUMO_ARRAY_KEYS: Array<[string, string]> = [
   ["imagens", "imagem(ns) encontrada(s)"],
 ];
 
-/** Short, human-readable pt-BR summary of a normalized tool result — shared by the live SSE progress panel and the fallback report. */
+/**
+ * Short, human-readable pt-BR summary of a normalized tool result — used
+ * only by the live SSE progress panel (etapas-list.tsx) while an analysis is
+ * running. Operational metadata like this must never be treated as a report
+ * fact — see buildEvidenceFallbackAnswer below, which never calls this.
+ */
 export function summarizeToolResult(resumo: unknown): string {
   const record = resumo as Record<string, unknown> | null;
   if (record) {
@@ -60,54 +73,166 @@ function assignFallbackFonteIds(fontes: FallbackFonteLike[]): NeoFonte[] {
   }));
 }
 
+const KNOWN_ABBREVIATIONS: Record<string, string> = {
+  cnpj: "CNPJ",
+  cpf: "CPF",
+  cep: "CEP",
+  cnae: "CNAE",
+  ie: "Inscrição estadual",
+  url: "URL",
+};
+
+/** Turns a generic extracted field key ("razao_social", "nomeFantasia") into a readable pt-BR label — no domain-specific hardcoding. */
+function humanizeKey(key: string): string {
+  const withSeparators = key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+  const words = withSeparators.split(/[_\s-]+/).filter(Boolean);
+  return words
+    .map((word, i) => {
+      if (KNOWN_ABBREVIATIONS[word]) return KNOWN_ABBREVIATIONS[word];
+      return i === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word;
+    })
+    .join(" ");
+}
+
+function stringifyValue(valor: unknown): string {
+  if (valor === null || valor === undefined) return "";
+  if (typeof valor === "string") return valor.trim();
+  if (typeof valor === "number" || typeof valor === "boolean") return String(valor);
+  try {
+    const serialized = JSON.stringify(valor);
+    return serialized === "{}" || serialized === "[]" ? "" : serialized;
+  } catch {
+    return "";
+  }
+}
+
+/** Extracts the structured `{json: {...}}` payload from an `extrair_dados` evidence entry, when present and not truncated. */
+function extractJson(resumo: unknown): Record<string, unknown> | null {
+  if (!resumo || typeof resumo !== "object") return null;
+  const json = (resumo as Record<string, unknown>).json;
+  if (!json || typeof json !== "object" || Array.isArray(json)) return null;
+  return json as Record<string, unknown>;
+}
+
+interface ExtractedFact {
+  fato: NeoFato;
+  origemUrl: string | null;
+}
+
+/** Flattens every successful extrair_dados evidence entry into concrete, sourced facts — the only material this fallback may present as findings. */
+function collectExtractedFacts(etapas: FallbackEtapaLike[]): ExtractedFact[] {
+  const facts: ExtractedFact[] = [];
+  for (const etapa of etapas) {
+    if (!etapa.ok || etapa.ferramenta !== "extrair_dados") continue;
+    const json = extractJson(etapa.resumo);
+    if (!json) continue;
+    const origemUrl = typeof etapa.argumentos?.url === "string" ? etapa.argumentos.url : null;
+    for (const [chave, valorBruto] of Object.entries(json)) {
+      const valor = stringifyValue(valorBruto);
+      if (!valor) continue;
+      facts.push({
+        fato: {
+          rotulo: humanizeKey(chave),
+          valor,
+          tipo: null,
+          nivelEvidencia: "bem_sustentado",
+          dataObservacao: null,
+          fontesIds: [],
+        },
+        origemUrl,
+      });
+    }
+  }
+  return facts;
+}
+
 export function buildEvidenceFallbackAnswer(params: {
+  /** Server-side reason this fallback ran — logged, and used only to build a neutral respostaDireta; never surfaces tool/step details. */
   motivo: string;
   etapas: FallbackEtapaLike[];
   fontes: FallbackFonteLike[];
+  /** Final tracked objective state from the executor, when available — drives lacunas without naming any tool. */
+  objetivos?: NeoObjetivo[];
 }): NeoAnswer {
-  const concluidas = params.etapas.filter((e) => e.ok);
-  const falhadas = params.etapas.filter((e) => !e.ok);
-  const fontes = assignFallbackFonteIds(params.fontes);
+  const objetivos = params.objetivos ?? [];
+  const extractedFacts = collectExtractedFacts(params.etapas);
 
-  const respostaDireta =
-    concluidas.length > 0
-      ? `${params.motivo} ${concluidas.length} etapa(s) foram concluídas antes da interrupção e estão consolidadas abaixo.`
-      : params.motivo;
+  const allFontes = assignFallbackFonteIds(params.fontes);
+  const fonteIdByUrl = new Map(allFontes.map((f) => [f.url, f.id]));
 
-  const achados: NeoAnswer["achados"] = concluidas.map((e) => ({
-    conclusao: e.nomePublico,
-    explicacao: summarizeToolResult(e.resumo),
-    nivelEvidencia: "indicio",
-    fontesIds: [],
+  const lacunasDeObjetivos = objetivos
+    .filter((o) => o.status !== "encontrado")
+    .map((o) => ({ tipo: "nao_encontrado" as const, descricao: o.descricao }));
+
+  if (extractedFacts.length === 0) {
+    const answer: NeoAnswer = {
+      version: NEO_ANSWER_VERSION,
+      status: "nao_concluido",
+      titulo: "Não foi possível confirmar os dados solicitados",
+      objetivo: "",
+      indicadoresPrincipais: [],
+      achados: [],
+      respostaDireta: "Os resultados localizados não apresentaram evidências suficientes. Você pode ajustar a solicitação ou tentar novamente.",
+      blocos: [],
+      lacunas: lacunasDeObjetivos,
+      matrizEvidencias: [],
+      fontes: [],
+      observacoes: [],
+      proximasAcoes: [],
+      perguntaNecessaria: null,
+    };
+    return sanitizeBannedTerms(answer);
+  }
+
+  const fatos = extractedFacts.map((f) => f.fato);
+  const indicadoresPrincipais: NeoAnswer["indicadoresPrincipais"] = extractedFacts.slice(0, 3).map(({ fato, origemUrl }) => ({
+    rotulo: fato.rotulo,
+    valor: fato.valor,
+    descricao: null,
+    fontesIds: origemUrl && fonteIdByUrl.has(origemUrl) ? [fonteIdByUrl.get(origemUrl)!] : [],
   }));
 
-  const matrizEvidencias: NeoAnswer["matrizEvidencias"] = concluidas.map((e) => ({
-    conclusao: e.nomePublico,
-    evidencia: summarizeToolResult(e.resumo),
-    classificacao: "indicio",
+  const achados: NeoAchado[] = extractedFacts.map(({ fato, origemUrl }) => ({
+    conclusao: `${fato.rotulo}: ${fato.valor}`,
+    explicacao: "Valor extraído de uma fonte consultada.",
+    nivelEvidencia: fato.nivelEvidencia,
+    fontesIds: origemUrl && fonteIdByUrl.has(origemUrl) ? [fonteIdByUrl.get(origemUrl)!] : [],
   }));
 
-  const blocos: NeoAnswer["blocos"] = [{ tipo: "texto", titulo: "O que aconteceu", conteudo: params.motivo, fontesIds: [] }];
+  const matrizEvidencias: NeoAnswer["matrizEvidencias"] = extractedFacts.map(({ fato }) => ({
+    conclusao: `${fato.rotulo}: ${fato.valor}`,
+    evidencia: "Extraído do conteúdo de uma fonte consultada.",
+    classificacao: "bem_sustentado",
+  }));
 
-  return {
+  const blocos: NeoAnswer["blocos"] = [
+    {
+      tipo: "fatos",
+      titulo: "Dados encontrados",
+      itens: fatos,
+    },
+  ];
+
+  const respostaDireta = `Foram confirmados os seguintes dados: ${fatos.map((f) => `${f.rotulo}: ${f.valor}`).join("; ")}.`;
+
+  const answer: NeoAnswer = {
     version: NEO_ANSWER_VERSION,
     status: "parcial",
-    titulo: concluidas.length > 0 ? "Relatório parcial da investigação" : "Investigação interrompida",
-    objetivo: "Consolidar o que já havia sido apurado antes da interrupção.",
-    indicadoresPrincipais: [],
+    titulo: fatos[0] ? `Dados confirmados: ${fatos.map((f) => f.rotulo).join(", ")}` : "Relatório parcial",
+    objetivo: "",
+    indicadoresPrincipais,
     achados,
     respostaDireta,
     blocos,
-    lacunas: falhadas.map((e) => ({
-      tipo: "nao_encontrado" as const,
-      descricao: `${e.nomePublico}: ${e.erroPublico ?? "não foi concluído"}`,
-    })),
+    lacunas: lacunasDeObjetivos,
     matrizEvidencias,
-    fontes,
-    observacoes: ["Este relatório foi montado automaticamente a partir das etapas já concluídas, sem uma síntese final do modelo."],
-    proximasAcoes: concluidas.length > 0 ? ["Continue esta investigação para tentar concluir o relatório completo."] : [],
+    fontes: allFontes,
+    observacoes: [],
+    proximasAcoes: lacunasDeObjetivos.length > 0 ? ["Continue esta análise para tentar confirmar os dados restantes."] : [],
     perguntaNecessaria: null,
   };
+
+  return sanitizeBannedTerms(pruneUnusedFontes(answer));
 }
 
 /** Whether there is anything at all worth showing the user — otherwise a plain failure message is clearer than an empty report. */

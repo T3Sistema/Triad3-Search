@@ -63,8 +63,8 @@ describe("synthesizeAnswer — Structured Output inválido e recuperação contr
     const result = await synthesizeAnswer(input);
     expect(callNeoResponses).toHaveBeenCalledTimes(2);
     expect(result.validationFailed).toBe(true);
-    expect(result.answer.status).toBe("parcial");
-    expect(result.answer.blocos[0]).toMatchObject({ tipo: "texto" });
+    expect(result.answer.status).toBe("nao_concluido");
+    expect(result.answer.blocos).toEqual([]);
   });
 
   it("rejects an answer missing required fields even if it is syntactically valid JSON", async () => {

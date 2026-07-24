@@ -103,7 +103,7 @@ describe("reconcileConversationExecution", () => {
     }
   });
 
-  it("incident repro: 9 completed searches + 1 abandoned step become parcial with totalFerramentas=9 and a synced message", async () => {
+  it("incident repro: 9 completed searches (no extraction) + 1 abandoned step become nao_concluido with totalFerramentas=9 and a synced message", async () => {
     vi.mocked(execucoesRepo.buscarUltimaExecucaoPorConversa).mockResolvedValue(execucaoBase);
     const concluidas = Array.from({ length: 9 }, (_, i) => etapa({ id: `etapa-${i}`, status: "concluida", ordem: i + 1 }));
     const abandonada = etapa({ id: "etapa-10", status: "em_execucao", ordem: 10 });
@@ -122,8 +122,10 @@ describe("reconcileConversationExecution", () => {
     );
     expect(mensagensRepo.atualizarMensagem).toHaveBeenCalledWith(
       "msgA1",
-      expect.objectContaining({ status: "parcial", respostaEstruturada: expect.objectContaining({ status: "parcial" }) }),
+      expect.objectContaining({ status: "parcial", respostaEstruturada: expect.objectContaining({ status: "nao_concluido" }) }),
     );
+    const [, atualizacao] = vi.mocked(mensagensRepo.atualizarMensagem).mock.calls[0];
+    expect(JSON.stringify(atualizacao)).not.toContain("Pesquisando na web");
   });
 
   it("finalizes as falhou when there is no usable evidence at all", async () => {

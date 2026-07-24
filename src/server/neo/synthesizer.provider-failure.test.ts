@@ -12,6 +12,6 @@ describe("synthesizeAnswer — falha na chamada ao modelo", () => {
     vi.mocked(callNeoResponses).mockRejectedValue(new Error("network down"));
     const result = await synthesizeAnswer({ userMessage: "pergunta", plan: null, evidence: [], fontesColetadas: [] });
     expect(result.validationFailed).toBe(true);
-    expect(result.answer.status).toBe("parcial");
+    expect(result.answer.status).toBe("nao_concluido");
   });
 });

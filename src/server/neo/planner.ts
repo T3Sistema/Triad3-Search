@@ -56,11 +56,11 @@ export async function planInvestigation(input: PlannerInput, signal?: AbortSigna
     );
 
     const raw = response.output_text;
-    if (!raw) return { ok: false, error: { type: "provider_error", message: "Não foi possível iniciar a investigação.", httpStatus: 502 } };
+    if (!raw) return { ok: false, error: { type: "provider_error", message: "Não foi possível iniciar a análise.", httpStatus: 502 } };
 
     const parsed = neoPlanSchema.safeParse(JSON.parse(raw));
     if (!parsed.success) {
-      return { ok: false, error: { type: "provider_error", message: "Não foi possível iniciar a investigação.", httpStatus: 502 } };
+      return { ok: false, error: { type: "provider_error", message: "Não foi possível iniciar a análise.", httpStatus: 502 } };
     }
     return { ok: true, plan: parsed.data };
   } catch (err) {

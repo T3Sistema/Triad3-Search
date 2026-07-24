@@ -32,15 +32,15 @@ describe("AnswerView — relatório completo", () => {
     render(<AnswerView mensagemId="m1" answer={answer} geradoEm="2026-07-24T10:00:00.000Z" />);
 
     expect(screen.getByText("Neo · Relatório de inteligência")).toBeInTheDocument();
-    expect(screen.getByText("Completo")).toBeInTheDocument();
+    expect(screen.getByText("Concluído")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Empresa X: identidade empresarial e presença digital" })).toBeInTheDocument();
     expect(screen.getByText(/Levantar identidade empresarial/)).toBeInTheDocument();
-    expect(screen.getByText("1 fonte consultada")).toBeInTheDocument();
+    expect(screen.getByText("1 fonte utilizada")).toBeInTheDocument();
     expect(screen.getByText("A empresa está formalmente ativa.")).toBeInTheDocument();
     expect(screen.getByText("A Empresa X é uma empresa ativa, com CNPJ regular.")).toBeInTheDocument();
 
     // Sources start collapsed and are the very last thing on the page.
-    const fontesToggle = screen.getByRole("button", { name: /Ver as fontes consultadas/ });
+    const fontesToggle = screen.getByRole("button", { name: /Ver fontes utilizadas/ });
     expect(fontesToggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("oficial.example")).not.toBeInTheDocument();
 
@@ -69,7 +69,7 @@ describe("AnswerView — relatório completo", () => {
 });
 
 describe("AnswerView — relatório parcial", () => {
-  it("shows the partial status, lists gaps under 'O que ainda merece apuração', and offers Continuar investigação only when there are gaps", () => {
+  it("shows the partial status, lists gaps under 'O que ainda precisa ser confirmado', and offers Continuar análise only when there are gaps", () => {
     const onContinuar = vi.fn();
     const answer = baseNeoAnswer({
       status: "parcial",
@@ -81,19 +81,50 @@ describe("AnswerView — relatório parcial", () => {
     render(<AnswerView mensagemId="m1" answer={answer} onContinuar={onContinuar} />);
 
     expect(screen.getByText("Parcial")).toBeInTheDocument();
-    expect(screen.getByText("O que ainda merece apuração")).toBeInTheDocument();
+    expect(screen.getByText("O que ainda precisa ser confirmado")).toBeInTheDocument();
     expect(screen.getByText("Telefone de contato")).toBeInTheDocument();
     expect(screen.getByText("Não encontrado")).toBeInTheDocument();
     expect(screen.getByText("Não confirmado")).toBeInTheDocument();
 
-    const botao = screen.getByRole("button", { name: /Continuar investigação/ });
+    const botao = screen.getByRole("button", { name: /Continuar análise/ });
     fireEvent.click(botao);
     expect(onContinuar).toHaveBeenCalledTimes(1);
   });
 
-  it("never offers Continuar investigação when the report is partial but has no gaps at all", () => {
+  it("never offers Continuar análise when the report is partial but has no gaps at all", () => {
     render(<AnswerView mensagemId="m1" answer={baseNeoAnswer({ status: "parcial", lacunas: [] })} onContinuar={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: /Continuar investigação/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Continuar análise/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("AnswerView — relatório não concluído", () => {
+  it("renders only the compact state — no cards, no matrix, no achados, no sources — with Tentar novamente and Ajustar solicitação", () => {
+    const onTentarNovamente = vi.fn();
+    const onAjustarSolicitacao = vi.fn();
+    const answer = baseNeoAnswer({
+      status: "nao_concluido",
+      titulo: "Não foi possível confirmar os dados solicitados",
+      indicadoresPrincipais: [{ rotulo: "Não deveria aparecer", valor: "x", descricao: null, fontesIds: [] }],
+      achados: [{ conclusao: "Não deveria aparecer", explicacao: "", nivelEvidencia: "indicio", fontesIds: [] }],
+      matrizEvidencias: [{ conclusao: "Não deveria aparecer", evidencia: "x", classificacao: "indicio" }],
+      fontes: [{ id: "f1", titulo: "Não deveria aparecer", url: "https://x.example", dominio: "x.example", dataAcesso: null }],
+      respostaDireta: "Os resultados localizados não apresentaram evidências suficientes. Você pode ajustar a solicitação ou tentar novamente.",
+    });
+    render(
+      <AnswerView mensagemId="m1" answer={answer} onTentarNovamente={onTentarNovamente} onAjustarSolicitacao={onAjustarSolicitacao} />,
+    );
+
+    expect(screen.getByText("Não concluído")).toBeInTheDocument();
+    expect(screen.getByText("Não foi possível confirmar os dados solicitados")).toBeInTheDocument();
+    expect(screen.getByText(/Os resultados localizados não apresentaram evidências suficientes/)).toBeInTheDocument();
+    expect(screen.queryByText("Não deveria aparecer")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Ver fontes utilizadas/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Como cada conclusão foi sustentada")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Tentar novamente/ }));
+    expect(onTentarNovamente).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /Ajustar solicitação/ }));
+    expect(onAjustarSolicitacao).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -177,7 +208,7 @@ describe("AnswerView — perfil social com métricas variáveis", () => {
           seguidores: "12,3 mil",
           seguindo: "120",
           publicacoes: "340",
-          relacao: "Perfil oficial encontrado durante a investigação",
+          relacao: "Perfil oficial encontrado durante a análise",
           metricaVariavel: true,
           dataObservacao: "2026-01-01",
           fontesIds: [],
@@ -218,7 +249,7 @@ describe("AnswerView — publicação com mídia e métricas", () => {
   });
 });
 
-describe("AnswerView — investigação genérica (não empresarial)", () => {
+describe("AnswerView — análise genérica (não empresarial)", () => {
   it("renders a political/event-style report using only timeline + text blocks, with no entidade/pessoa forced in", () => {
     const answer = baseNeoAnswer({
       titulo: "Cronologia de um acontecimento público",
@@ -296,16 +327,16 @@ describe("AnswerView — proteção contra conteúdo malicioso", () => {
   it("never turns a javascript: URL fonte into a clickable link", () => {
     const answer = baseNeoAnswer({ fontes: [{ id: "f1", titulo: "Suspeita", url: "javascript:alert(1)", dominio: null, dataAcesso: null }] });
     render(<AnswerView mensagemId="m1" answer={answer} />);
-    fireEvent.click(screen.getByRole("button", { name: /Ver as fontes consultadas/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Ver fontes utilizadas/ }));
     expect(screen.queryByRole("link", { name: /Suspeita/ })).not.toBeInTheDocument();
   });
 });
 
 describe("AnswerView — footer", () => {
-  it("always discloses that data reflects the moment of consultation, without heavy legal text", () => {
+  it("shows only the two required lines — attribution and the consultation-moment disclosure, no heavy legal text", () => {
     render(<AnswerView mensagemId="m1" answer={baseNeoAnswer()} geradoEm="2026-07-24T10:00:00.000Z" />);
-    expect(screen.getByText(/representam o momento da consulta/)).toBeInTheDocument();
-    expect(screen.getByText(/devem ser validadas/)).toBeInTheDocument();
+    expect(screen.getByText("Relatório gerado pelo Neo.")).toBeInTheDocument();
+    expect(screen.getByText("Informações públicas disponíveis no momento da consulta.")).toBeInTheDocument();
   });
 });
 

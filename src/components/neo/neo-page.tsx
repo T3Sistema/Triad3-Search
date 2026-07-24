@@ -63,6 +63,12 @@ export function NeoPage({ conversaId }: { conversaId?: string }) {
     void conversaQuery.refetch();
   }, [stream, mensagensQuery, conversaQuery]);
 
+  // "Ajustar solicitação" (nao_concluido state): prefills the composer with the original question
+  // instead of resending it verbatim, so the user can edit it before trying again.
+  const ajustarSolicitacao = React.useCallback((texto: string) => {
+    setDraft(texto);
+  }, []);
+
   // Bridge from the "no conversation yet" empty state: create + navigate, then auto-send once the
   // [id] route mounts. Deferred via queueMicrotask so the send (itself a state update further down
   // the tree) doesn't run synchronously inside the effect body.
@@ -160,7 +166,7 @@ export function NeoPage({ conversaId }: { conversaId?: string }) {
               ))}
             </div>
           ) : mensagensPersistidas.length === 0 && !streamAtiva ? (
-            <p className="py-10 text-center text-sm text-text-secondary">Envie uma mensagem para começar esta investigação.</p>
+            <p className="py-10 text-center text-sm text-text-secondary">Envie uma mensagem para começar esta análise.</p>
           ) : null}
 
           {mensagensPersistidas.map((mensagem, index) => {
@@ -176,6 +182,7 @@ export function NeoPage({ conversaId }: { conversaId?: string }) {
                 onAtualizar={atualizar}
                 onTentarNovamente={textoAnterior ? () => enviar(textoAnterior) : undefined}
                 onContinuar={textoAnterior && mensagem.execucaoId ? () => continuar(mensagem.execucaoId!, textoAnterior) : undefined}
+                onAjustarSolicitacao={textoAnterior ? () => ajustarSolicitacao(textoAnterior) : undefined}
               />
             );
           })}
@@ -207,7 +214,7 @@ export function NeoPage({ conversaId }: { conversaId?: string }) {
 
               {stream.state.status === "erro" ? (
                 <div className="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-error/30 bg-error-bg p-4 text-sm text-text-primary shadow-sm">
-                  <span>{stream.state.erro ?? "Não foi possível concluir a investigação."}</span>
+                  <span>{stream.state.erro ?? "Não foi possível concluir a análise."}</span>
                   {stream.state.conexaoPerdida ? (
                     <Button variant="ghost" size="sm" onClick={atualizar}>
                       <RefreshCw className="h-4 w-4" /> Atualizar

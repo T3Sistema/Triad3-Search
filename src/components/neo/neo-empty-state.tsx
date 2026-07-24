@@ -17,7 +17,7 @@ export function NeoEmptyState({ onSugestao }: { onSugestao: (texto: string) => v
       </div>
       <div className="max-w-md space-y-2">
         <h1 className="text-xl font-semibold text-text-primary">Olá, eu sou o Neo.</h1>
-        <p className="text-lg text-text-primary">O que vamos investigar?</p>
+        <p className="text-lg text-text-primary">O que vamos analisar?</p>
         <p className="text-sm text-text-secondary">
           Descreva o resultado que você quer em linguagem natural. Eu pesquiso, cruzo fontes, extraio dados,
           acompanho mudanças e monto um relatório organizado — com fontes, fatos e o que ainda não foi encontrado.

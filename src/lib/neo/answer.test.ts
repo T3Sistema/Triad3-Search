@@ -110,7 +110,7 @@ describe("buildFallbackAnswer", () => {
   it("always produces a schema-valid answer, even as a last-resort fallback", () => {
     const fallback = buildFallbackAnswer("Não foi possível montar o relatório.");
     expect(neoAnswerSchema.safeParse(fallback).success).toBe(true);
-    expect(fallback.status).toBe("parcial");
+    expect(fallback.status).toBe("nao_concluido");
   });
 });
 
@@ -165,7 +165,7 @@ describe("normalizeNeoAnswer", () => {
   it("falls back to a safe minimal report for completely unparseable data — never throws, never shows raw JSON", () => {
     const result = normalizeNeoAnswer({ nonsense: true });
     expect(neoAnswerSchema.safeParse(result).success).toBe(true);
-    expect(result.status).toBe("parcial");
+    expect(result.status).toBe("nao_concluido");
   });
 
   it("handles null/undefined input without throwing", () => {
