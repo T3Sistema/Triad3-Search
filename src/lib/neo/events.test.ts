@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseNeoEvent } from "./events";
-import { NEO_ANSWER_VERSION } from "./answer";
+import { baseNeoAnswer } from "./answer-fixtures";
 
 describe("parseNeoEvent", () => {
   it("accepts a valid execucao.iniciada event", () => {
@@ -12,18 +12,7 @@ describe("parseNeoEvent", () => {
     const evento = parseNeoEvent({
       tipo: "resposta.concluida",
       mensagemId: "m1",
-      resposta: {
-        version: NEO_ANSWER_VERSION,
-        status: "completo",
-        titulo: "t",
-        resumoExecutivo: "r",
-        blocos: [],
-        fontes: [],
-        informacoesAusentes: [],
-        observacoes: [],
-        proximasAcoes: [],
-        perguntaNecessaria: null,
-      },
+      resposta: baseNeoAnswer({ titulo: "t", respostaDireta: "r" }),
     });
     expect(evento?.tipo).toBe("resposta.concluida");
   });

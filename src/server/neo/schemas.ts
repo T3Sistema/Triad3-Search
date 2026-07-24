@@ -25,16 +25,6 @@ export const neoPlanSchema = z.object({
 });
 export type NeoPlan = z.infer<typeof neoPlanSchema>;
 
-/** Phase 3 (verification) — small structured self-check appended to the tool loop before synthesis. */
-export const neoVerificacaoSchema = z.object({
-  camposEncontrados: z.array(z.string()),
-  camposAusentes: z.array(z.string()),
-  divergenciasDetectadas: z.array(z.string()),
-  necessitaNovaConsulta: z.boolean(),
-  motivoNovaConsulta: z.string().nullable(),
-});
-export type NeoVerificacao = z.infer<typeof neoVerificacaoSchema>;
-
 /** Rolling conversation summary, refreshed by the same NEO_MODEL when history grows too long. */
 export const neoResumoConversaSchema = z.object({
   resumo: z.string(),

@@ -2,6 +2,7 @@ import "server-only";
 import * as React from "react";
 import { Document, Page, View, Text, Image, Link, StyleSheet, Font, renderToBuffer } from "@react-pdf/renderer";
 import type { NeoAnswer, NeoBloco } from "@/lib/neo/answer";
+import { translateEvidenciaMatrizClassificacao, translateLacunaTipo, translateNeoAnswerStatus, translateNivelEvidencia } from "@/lib/ui/status-labels";
 
 // Disable hyphenation so pt-BR words aren't awkwardly broken mid-syllable.
 Font.registerHyphenationCallback((word) => [word]);
@@ -9,6 +10,7 @@ Font.registerHyphenationCallback((word) => [word]);
 const styles = StyleSheet.create({
   page: { paddingTop: 56, paddingBottom: 48, paddingHorizontal: 40, fontSize: 10, color: "#0f172a" },
   headerBrand: { fontSize: 9, color: "#64748b", marginBottom: 2 },
+  statusPill: { fontSize: 8, color: "#1d4ed8", marginBottom: 4, textTransform: "uppercase" },
   title: { fontSize: 18, fontWeight: 700, marginBottom: 4 },
   metaLine: { fontSize: 8, color: "#64748b", marginBottom: 2 },
   section: { marginTop: 14 },
@@ -17,6 +19,13 @@ const styles = StyleSheet.create({
   bullet: { flexDirection: "row", marginBottom: 3 },
   bulletMark: { width: 10 },
   bulletText: { flex: 1, lineHeight: 1.4 },
+  indicadorRow: { flexDirection: "row", flexWrap: "wrap", marginBottom: 4 },
+  indicadorCard: { width: "33%", paddingRight: 8, marginBottom: 6 },
+  indicadorLabel: { fontSize: 8, color: "#64748b" },
+  indicadorValor: { fontSize: 12, fontWeight: 700 },
+  achadoRow: { marginBottom: 6 },
+  achadoConclusao: { fontSize: 10, fontWeight: 700 },
+  achadoExplicacao: { fontSize: 9, color: "#334155", marginTop: 1 },
   tableRow: { flexDirection: "row", borderBottomWidth: 0.5, borderColor: "#cbd5e1", paddingVertical: 3 },
   tableHeaderRow: { flexDirection: "row", borderBottomWidth: 1, borderColor: "#0f172a", paddingVertical: 3 },
   tableCell: { flex: 1, fontSize: 9, paddingRight: 4 },
@@ -25,6 +34,7 @@ const styles = StyleSheet.create({
   image: { maxWidth: 240, maxHeight: 180, marginBottom: 4 },
   caption: { fontSize: 8, color: "#64748b", marginBottom: 6 },
   footer: { position: "absolute", bottom: 20, left: 40, right: 40, fontSize: 8, color: "#94a3b8", flexDirection: "row", justifyContent: "space-between" },
+  disclaimer: { fontSize: 7.5, color: "#94a3b8", lineHeight: 1.4 },
   fixedHeader: { position: "absolute", top: 20, left: 40, right: 40, fontSize: 8, color: "#94a3b8" },
 });
 
@@ -50,6 +60,12 @@ function isValidHttpImageUrl(url: string): boolean {
   }
 }
 
+function SafePdfImage({ url }: { url: string | null }) {
+  if (!url || !isValidHttpImageUrl(url)) return null;
+  // eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer's Image has no alt prop; this isn't an HTML <img>
+  return <Image style={styles.image} src={url} />;
+}
+
 function BlocoView({ bloco }: { bloco: NeoBloco }) {
   switch (bloco.tipo) {
     case "texto":
@@ -65,7 +81,7 @@ function BlocoView({ bloco }: { bloco: NeoBloco }) {
           {bloco.titulo ? <SectionTitle>{bloco.titulo}</SectionTitle> : null}
           {bloco.itens.map((f, i) => (
             <Bullet key={i}>
-              {f.rotulo}: {f.valor} ({f.nivelEvidencia.replace(/_/g, " ")}
+              {f.rotulo}: {f.valor} ({translateNivelEvidencia(f.nivelEvidencia)}
               {f.dataObservacao ? `, observado em ${f.dataObservacao}` : ""})
             </Bullet>
           ))}
@@ -77,11 +93,15 @@ function BlocoView({ bloco }: { bloco: NeoBloco }) {
           <SectionTitle>{bloco.nome}</SectionTitle>
           {bloco.subtitulo ? <Text style={styles.paragraph}>{bloco.subtitulo}</Text> : null}
           {bloco.descricao ? <Text style={styles.paragraph}>{bloco.descricao}</Text> : null}
-          {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer's Image has no alt prop; this isn't an HTML <img> */}
-          {bloco.imagemUrl && isValidHttpImageUrl(bloco.imagemUrl) ? <Image style={styles.image} src={bloco.imagemUrl} /> : null}
+          <SafePdfImage url={bloco.imagemUrl} />
+          {bloco.identificadores.map((a, i) => (
+            <Bullet key={`id${i}`}>
+              {a.rotulo}: {a.valor}
+            </Bullet>
+          ))}
           {bloco.atributos.map((a, i) => (
             <Bullet key={`a${i}`}>
-              {a.rotulo}: {a.valor}
+              {a.rotulo}: {a.valor} ({translateNivelEvidencia(a.nivelEvidencia)})
             </Bullet>
           ))}
           {bloco.metricas.map((m, i) => (
@@ -89,6 +109,67 @@ function BlocoView({ bloco }: { bloco: NeoBloco }) {
               {m.rotulo}: {m.valor}
             </Bullet>
           ))}
+        </View>
+      );
+    case "pessoa":
+      return (
+        <View style={styles.section}>
+          <SectionTitle>{bloco.nome}</SectionTitle>
+          <SafePdfImage url={bloco.fotoUrl} />
+          {bloco.papeis.map((p, i) => (
+            <Bullet key={`p${i}`}>
+              {p.classificacao} ({translateNivelEvidencia(p.nivelEvidencia)})
+            </Bullet>
+          ))}
+          {bloco.organizacoesRelacionadas.map((o, i) => (
+            <Bullet key={`o${i}`}>
+              {o.nome}: {o.relacao}
+            </Bullet>
+          ))}
+          {bloco.atributos.map((a, i) => (
+            <Bullet key={`a${i}`}>
+              {a.rotulo}: {a.valor} ({translateNivelEvidencia(a.nivelEvidencia)})
+            </Bullet>
+          ))}
+        </View>
+      );
+    case "perfil_social":
+      return (
+        <View style={styles.section}>
+          <SectionTitle>
+            {bloco.nome}
+            {bloco.arroba ? ` (${bloco.arroba})` : ""}
+          </SectionTitle>
+          <SafePdfImage url={bloco.fotoUrl} />
+          {bloco.bio ? <Text style={styles.paragraph}>{bloco.bio}</Text> : null}
+          <Bullet>
+            {[
+              bloco.seguidores ? `${bloco.seguidores} seguidores` : null,
+              bloco.seguindo ? `${bloco.seguindo} seguindo` : null,
+              bloco.publicacoes ? `${bloco.publicacoes} publicações` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || "—"}
+          </Bullet>
+          {bloco.relacao ? <Text style={styles.paragraph}>{bloco.relacao}</Text> : null}
+          {bloco.metricaVariavel ? <Text style={styles.caption}>Métricas variáveis, sujeitas a mudança.</Text> : null}
+        </View>
+      );
+    case "publicacao":
+      return (
+        <View style={styles.section}>
+          <SafePdfImage url={bloco.midiaUrl} />
+          {bloco.legenda ? <Text style={styles.paragraph}>{bloco.legenda}</Text> : null}
+          <Bullet>
+            {[
+              bloco.dataPublicacao,
+              bloco.curtidas ? `${bloco.curtidas} curtidas` : null,
+              bloco.comentarios ? `${bloco.comentarios} comentários` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || "—"}
+          </Bullet>
+          {bloco.contexto ? <Text style={styles.paragraph}>{bloco.contexto}</Text> : null}
         </View>
       );
     case "metricas":
@@ -107,8 +188,7 @@ function BlocoView({ bloco }: { bloco: NeoBloco }) {
     case "imagem":
       return isValidHttpImageUrl(bloco.url) ? (
         <View style={styles.section}>
-          {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer's Image has no alt prop; this isn't an HTML <img> */}
-          <Image style={styles.image} src={bloco.url} />
+          <SafePdfImage url={bloco.url} />
           {bloco.legenda ? <Text style={styles.caption}>{bloco.legenda}</Text> : null}
         </View>
       ) : null;
@@ -164,17 +244,6 @@ function BlocoView({ bloco }: { bloco: NeoBloco }) {
           <Text style={styles.alert}>{bloco.mensagem}</Text>
         </View>
       );
-    case "fontes":
-      return (
-        <View style={styles.section}>
-          <SectionTitle>Fontes</SectionTitle>
-          {bloco.itens.map((f, i) => (
-            <Bullet key={i}>
-              <Link src={f.url}>{f.titulo ?? f.url}</Link>
-            </Bullet>
-          ))}
-        </View>
-      );
     default:
       return null;
   }
@@ -193,26 +262,79 @@ function NeoAnswerDocument({ answer, meta }: { answer: NeoAnswer; meta: NeoAnswe
         <Text style={styles.fixedHeader} fixed>
           Triad3 Search — Neo
         </Text>
-        <Text style={styles.headerBrand}>Triad3 Search — Relatório do Neo</Text>
+        <Text style={styles.headerBrand}>Triad3 Search — Relatório de inteligência do Neo</Text>
+        <Text style={styles.statusPill}>{translateNeoAnswerStatus(answer.status)}</Text>
         <Text style={styles.title}>{answer.titulo}</Text>
+        {answer.objetivo ? <Text style={styles.metaLine}>{answer.objetivo}</Text> : null}
         <Text style={styles.metaLine}>Pergunta original: {meta.perguntaOriginal}</Text>
         <Text style={styles.metaLine}>Gerado em: {meta.geradoEm}</Text>
         <Text style={styles.metaLine}>Usuário responsável: {meta.usuarioNome}</Text>
+        <Text style={styles.metaLine}>Fontes consultadas: {answer.fontes.length}</Text>
 
-        <View style={styles.section}>
-          <SectionTitle>Resumo executivo</SectionTitle>
-          <Text style={styles.paragraph}>{answer.resumoExecutivo}</Text>
-        </View>
+        {answer.indicadoresPrincipais.length > 0 ? (
+          <View style={styles.section}>
+            <SectionTitle>Resposta executiva</SectionTitle>
+            <View style={styles.indicadorRow}>
+              {answer.indicadoresPrincipais.slice(0, 3).map((ind, i) => (
+                <View style={styles.indicadorCard} key={i}>
+                  <Text style={styles.indicadorLabel}>{ind.rotulo}</Text>
+                  <Text style={styles.indicadorValor}>{ind.valor}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {answer.achados.length > 0 ? (
+          <View style={styles.section}>
+            <SectionTitle>O que a investigação encontrou</SectionTitle>
+            {answer.achados.map((a, i) => (
+              <View style={styles.achadoRow} key={i} wrap={false}>
+                <Text style={styles.achadoConclusao}>
+                  {i + 1}. {a.conclusao} ({translateNivelEvidencia(a.nivelEvidencia)})
+                </Text>
+                {a.explicacao ? <Text style={styles.achadoExplicacao}>{a.explicacao}</Text> : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {answer.respostaDireta ? (
+          <View style={styles.section}>
+            <SectionTitle>Resposta do Neo</SectionTitle>
+            <Text style={styles.paragraph}>{answer.respostaDireta}</Text>
+          </View>
+        ) : null}
 
         {answer.blocos.map((bloco, i) => (
           <BlocoView bloco={bloco} key={i} />
         ))}
 
-        {answer.informacoesAusentes.length > 0 ? (
+        {answer.lacunas.length > 0 ? (
           <View style={styles.section}>
-            <SectionTitle>Informações não localizadas</SectionTitle>
-            {answer.informacoesAusentes.map((info, i) => (
-              <Bullet key={i}>{info}</Bullet>
+            <SectionTitle>O que ainda merece apuração</SectionTitle>
+            {answer.lacunas.map((l, i) => (
+              <Bullet key={i}>
+                {translateLacunaTipo(l.tipo)}: {l.descricao}
+              </Bullet>
+            ))}
+          </View>
+        ) : null}
+
+        {answer.matrizEvidencias.length > 0 ? (
+          <View style={styles.section}>
+            <SectionTitle>Como cada conclusão foi sustentada</SectionTitle>
+            <View style={styles.tableHeaderRow} wrap={false}>
+              <Text style={styles.tableHeaderCell}>Conclusão</Text>
+              <Text style={styles.tableHeaderCell}>Evidência</Text>
+              <Text style={styles.tableHeaderCell}>Classificação</Text>
+            </View>
+            {answer.matrizEvidencias.map((m, i) => (
+              <View style={styles.tableRow} key={i} wrap={false}>
+                <Text style={styles.tableCell}>{m.conclusao}</Text>
+                <Text style={styles.tableCell}>{m.evidencia}</Text>
+                <Text style={styles.tableCell}>{translateEvidenciaMatrizClassificacao(m.classificacao)}</Text>
+              </View>
             ))}
           </View>
         ) : null}
@@ -225,6 +347,22 @@ function NeoAnswerDocument({ answer, meta }: { answer: NeoAnswer; meta: NeoAnswe
             ))}
           </View>
         ) : null}
+
+        {answer.fontes.length > 0 ? (
+          <View style={styles.section}>
+            <SectionTitle>Fontes consultadas</SectionTitle>
+            {answer.fontes.map((f, i) => (
+              <Bullet key={i}>
+                <Link src={f.url}>{f.titulo ?? f.url}</Link>
+              </Bullet>
+            ))}
+          </View>
+        ) : null}
+
+        <View style={styles.section}>
+          <Text style={styles.disclaimer}>Os dados representam o momento da consulta e podem ter mudado desde então.</Text>
+          <Text style={styles.disclaimer}>Informações sensíveis ou de natureza formal devem ser validadas antes de qualquer uso oficial.</Text>
+        </View>
 
         <Text
           style={styles.footer}

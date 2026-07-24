@@ -9,7 +9,7 @@ vi.mock("@/server/neo/export/context");
 
 import * as contextMod from "@/server/neo/export/context";
 import { GET } from "./route";
-import { NEO_ANSWER_VERSION } from "@/lib/neo/answer";
+import { baseNeoAnswer } from "@/lib/neo/answer-fixtures";
 
 const ctx = { params: Promise.resolve({ id: "m1" }) };
 
@@ -32,18 +32,7 @@ describe("GET /api/triad3/neo/mensagens/[id]/exportar/markdown", () => {
       mensagemId: "m1",
       conversaId: "c1",
       perguntaOriginal: "pergunta",
-      answer: {
-        version: NEO_ANSWER_VERSION,
-        status: "completo",
-        titulo: "Relatório",
-        resumoExecutivo: "resumo",
-        blocos: [],
-        fontes: [],
-        informacoesAusentes: [],
-        observacoes: [],
-        proximasAcoes: [],
-        perguntaNecessaria: null,
-      },
+      answer: baseNeoAnswer({ titulo: "Relatório", respostaDireta: "resumo" }),
     });
     const response = await GET(new Request("http://localhost/x"), ctx);
     expect(response.status).toBe(200);

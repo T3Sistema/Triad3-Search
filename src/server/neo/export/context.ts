@@ -1,6 +1,6 @@
 import "server-only";
 import { buscarMensagemPorId, listarMensagens } from "@/server/db/repositories/neo-mensagens";
-import { neoAnswerSchema, type NeoAnswer } from "@/lib/neo/answer";
+import { normalizeNeoAnswer, type NeoAnswer } from "@/lib/neo/answer";
 
 export interface NeoExportContext {
   mensagemId: string;
@@ -19,8 +19,7 @@ export async function loadNeoExportContext(usuarioId: string, mensagemId: string
   const mensagem = await buscarMensagemPorId(usuarioId, mensagemId);
   if (!mensagem || mensagem.papel !== "assistente" || !mensagem.respostaEstruturada) return null;
 
-  const parsed = neoAnswerSchema.safeParse(mensagem.respostaEstruturada);
-  if (!parsed.success) return null;
+  const answer = normalizeNeoAnswer(mensagem.respostaEstruturada);
 
   const historico = await listarMensagens(mensagem.conversaId, { limit: 500 });
   const index = historico.findIndex((m) => m.id === mensagemId);
@@ -28,7 +27,7 @@ export async function loadNeoExportContext(usuarioId: string, mensagemId: string
     [...historico.slice(0, index === -1 ? historico.length : index)].reverse().find((m) => m.papel === "usuario")?.conteudo ??
     "Não disponível.";
 
-  return { mensagemId, conversaId: mensagem.conversaId, answer: parsed.data, perguntaOriginal };
+  return { mensagemId, conversaId: mensagem.conversaId, answer, perguntaOriginal };
 }
 
 /** Sanitizes a report title into a safe filename fragment (no path separators, no control chars). */

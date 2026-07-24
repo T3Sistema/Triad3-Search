@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NeoPage } from "./neo-page";
-import { NEO_ANSWER_VERSION } from "@/lib/neo/answer";
+import { baseNeoAnswer } from "@/lib/neo/answer-fixtures";
 
 const push = vi.fn();
 const replace = vi.fn();
@@ -39,20 +39,15 @@ function renderNeoPage(conversaId = "c1") {
   );
 }
 
-const respostaFinal = {
-  version: NEO_ANSWER_VERSION,
-  status: "completo" as const,
+const respostaFinal = baseNeoAnswer({
+  status: "completo",
   titulo: "Perfil da Empresa X",
-  resumoExecutivo: "Resumo da investigação.",
+  respostaDireta: "Resumo da investigação.",
   blocos: [
-    { tipo: "fatos" as const, titulo: "Fatos", itens: [{ rotulo: "Site", valor: "empresa.com", tipo: null, nivelEvidencia: "confirmado" as const, dataObservacao: "2026-01-01", fontesIds: ["f1"] }] },
+    { tipo: "fatos", titulo: "Fatos", itens: [{ rotulo: "Site", valor: "empresa.com", tipo: null, nivelEvidencia: "confirmado", dataObservacao: "2026-01-01", fontesIds: ["f1"] }] },
   ],
   fontes: [{ id: "f1", titulo: "Site oficial", url: "https://empresa.com", dominio: "empresa.com", dataAcesso: "2026-01-01" }],
-  informacoesAusentes: [],
-  observacoes: [],
-  proximasAcoes: [],
-  perguntaNecessaria: null,
-};
+});
 
 describe("Neo — fluxo completo mockado (planejamento, etapas, relatório)", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -111,7 +106,7 @@ describe("Neo — fluxo completo mockado (planejamento, etapas, relatório)", ()
     expect(screen.queryByText(/"tipo":"fatos"/)).not.toBeInTheDocument();
 
     // Sources drawer.
-    const fontesButton = screen.getByRole("button", { name: /Todas as fontes/ });
+    const fontesButton = screen.getByRole("button", { name: /Ver as fontes consultadas/ });
     fireEvent.click(fontesButton);
     expect(within(fontesButton.closest("div")!.parentElement!).getByText("Site oficial")).toBeInTheDocument();
   });
@@ -283,7 +278,7 @@ describe("Neo — recuperação de uma conversa com execução interrompida (inc
               usuarioId: "u1",
               papel: "assistente",
               conteudo: "9 etapa(s) foram concluídas antes da interrupção.",
-              respostaEstruturada: { ...respostaFinal, status: "parcial" },
+              respostaEstruturada: { ...respostaFinal, status: "parcial", lacunas: [{ tipo: "nao_encontrado", descricao: "Telefone de contato" }] },
               status: "parcial",
               execucaoId: "exec-parcial",
               criadoEm: "t2",

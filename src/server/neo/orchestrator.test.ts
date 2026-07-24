@@ -62,10 +62,14 @@ function fakeAnswer(overrides: Record<string, unknown> = {}) {
     version: NEO_ANSWER_VERSION,
     status: "completo" as const,
     titulo: "Relatório",
-    resumoExecutivo: "Resumo.",
+    objetivo: "",
+    indicadoresPrincipais: [],
+    achados: [],
+    respostaDireta: "Resumo.",
     blocos: [],
+    lacunas: [],
+    matrizEvidencias: [],
     fontes: [],
-    informacoesAusentes: [],
     observacoes: [],
     proximasAcoes: [],
     perguntaNecessaria: null,
@@ -455,7 +459,7 @@ describe("runNeoExecution — falha na síntese com relatório parcial de evidê
     // Not the synthesizer's generic "Resposta do Neo" fallback — the deterministic
     // evidence-based one, which actually names the completed step.
     expect(answer?.titulo).not.toBe("Resposta do Neo");
-    expect(JSON.stringify(answer?.blocos)).toContain("Pesquisando na web");
+    expect(JSON.stringify(answer?.achados)).toContain("Pesquisando na web");
     expect(answer?.status).toBe("parcial");
   });
 });
@@ -531,13 +535,13 @@ describe("runNeoExecution — continuação de conversa", () => {
 });
 
 describe("runNeoExecution — informação ausente (campos encontrados/ausentes)", () => {
-  it("computes camposEncontrados as camposSolicitados minus informacoesAusentes", async () => {
+  it("computes camposEncontrados as camposSolicitados minus lacunas", async () => {
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "sem_ferramentas" },
       state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     vi.mocked(synthesizerMod.synthesizeAnswer).mockResolvedValue({
-      answer: fakeAnswer({ informacoesAusentes: ["telefone"] }),
+      answer: fakeAnswer({ lacunas: [{ tipo: "nao_encontrado", descricao: "telefone" }] }),
       fontes: [],
       tokensEntrada: 1,
       tokensSaida: 1,
@@ -673,7 +677,7 @@ describe("runNeoExecution — orçamento esgotado (fallback determinístico sem 
     expect(synthesizerMod.synthesizeAnswer).not.toHaveBeenCalled();
     const resposta = events.find((e) => e.tipo === "resposta.concluida");
     expect(resposta && "resposta" in resposta ? resposta.resposta.status : null).toBe("parcial");
-    expect(resposta && "resposta" in resposta ? JSON.stringify(resposta.resposta.blocos) : "").toContain("Pesquisando na web");
+    expect(resposta && "resposta" in resposta ? JSON.stringify(resposta.resposta.achados) : "").toContain("Pesquisando na web");
     expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "parcial" }));
   });
 });

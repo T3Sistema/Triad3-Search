@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { renderNeoAnswerPdf } from "./pdf";
-import { NEO_ANSWER_VERSION, type NeoAnswer } from "@/lib/neo/answer";
+import type { NeoAnswer } from "@/lib/neo/answer";
+import { baseNeoAnswer } from "@/lib/neo/answer-fixtures";
 
 function richAnswer(): NeoAnswer {
-  return {
-    version: NEO_ANSWER_VERSION,
-    status: "completo",
+  return baseNeoAnswer({
     titulo: "Relatório de teste com acentuação: ç ã é",
-    resumoExecutivo: "Resumo executivo.",
+    indicadoresPrincipais: [{ rotulo: "Indicador", valor: "42", descricao: null, fontesIds: [] }],
+    achados: [{ conclusao: "Achado principal", explicacao: "Explicação do achado.", nivelEvidencia: "confirmado", fontesIds: ["f1"] }],
     blocos: [
       { tipo: "texto", titulo: "Seção", conteudo: "Conteúdo de teste.", fontesIds: [] },
       {
@@ -15,17 +15,22 @@ function richAnswer(): NeoAnswer {
         titulo: "Fatos",
         itens: [{ rotulo: "Nome", valor: "Ana", tipo: null, nivelEvidencia: "confirmado", dataObservacao: "2026-01-01", fontesIds: [] }],
       },
-      { tipo: "tabela", titulo: "Tabela grande", colunas: ["A", "B"], linhas: Array.from({ length: 40 }, (_, i) => [`linha ${i}`, "valor"]), fontesIds: [], exportavelCsv: true },
+      {
+        tipo: "tabela",
+        titulo: "Tabela grande",
+        colunas: ["A", "B"],
+        linhas: Array.from({ length: 40 }, (_, i) => [`linha ${i}`, "valor"]),
+        fontesIds: [],
+        exportavelCsv: true,
+      },
       { tipo: "alerta", categoria: "resultado_parcial", mensagem: "Aviso de teste." },
       { tipo: "imagem", url: "https://example.com/imagem-inexistente.png", legenda: "Legenda", textoAlternativo: "alt", fontesIds: [] },
-      { tipo: "fontes", itens: [{ id: "f1", titulo: "Fonte", url: "https://example.com", dominio: "example.com", dataAcesso: "2026-01-01" }] },
     ],
     fontes: [{ id: "f1", titulo: "Fonte", url: "https://example.com", dominio: "example.com", dataAcesso: "2026-01-01" }],
-    informacoesAusentes: ["Campo ausente"],
+    lacunas: [{ tipo: "nao_encontrado", descricao: "Campo ausente" }],
+    matrizEvidencias: [{ conclusao: "Achado principal", evidencia: "Fonte consultada", classificacao: "confirmado" }],
     observacoes: ["Observação"],
-    proximasAcoes: [],
-    perguntaNecessaria: null,
-  };
+  });
 }
 
 describe("renderNeoAnswerPdf", () => {

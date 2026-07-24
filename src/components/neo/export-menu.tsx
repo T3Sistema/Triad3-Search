@@ -39,14 +39,14 @@ export function ExportMenu({ mensagemId, answer }: { mensagemId: string; answer:
   }
 
   async function copiarResumo() {
-    const ok = await copyToClipboard(answer.resumoExecutivo);
+    const ok = await copyToClipboard(answer.respostaDireta);
     toast[ok ? "success" : "error"](ok ? "Resumo copiado." : "Não foi possível copiar o resumo.");
   }
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="secondary" size="sm" onClick={baixarPdf} disabled={busy === "pdf"}>
-        <FileType className="h-4 w-4" /> Baixar PDF
+        <FileType className="h-4 w-4" /> Baixar relatório em PDF
       </Button>
       <Button variant="secondary" size="sm" onClick={baixarMarkdown} disabled={busy === "markdown"}>
         <FileText className="h-4 w-4" /> Baixar Markdown

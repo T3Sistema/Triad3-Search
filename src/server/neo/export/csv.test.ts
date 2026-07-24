@@ -1,23 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { exportNeoAnswerTableAsCsv } from "./csv";
-import { NEO_ANSWER_VERSION, type NeoAnswer } from "@/lib/neo/answer";
+import type { NeoAnswer } from "@/lib/neo/answer";
+import { baseNeoAnswer } from "@/lib/neo/answer-fixtures";
 
 function answerWithTables(): NeoAnswer {
-  return {
-    version: NEO_ANSWER_VERSION,
-    status: "completo",
-    titulo: "t",
-    resumoExecutivo: "r",
+  return baseNeoAnswer({
     blocos: [
       { tipo: "tabela", titulo: "Primeira", colunas: ["Nome", "Cidade"], linhas: [["Ana, Silva", 'Rio "RJ"']], fontesIds: [], exportavelCsv: true },
       { tipo: "tabela", titulo: "Segunda", colunas: ["X"], linhas: [["1"]], fontesIds: [], exportavelCsv: true },
     ],
-    fontes: [],
-    informacoesAusentes: [],
-    observacoes: [],
-    proximasAcoes: [],
-    perguntaNecessaria: null,
-  };
+  });
 }
 
 describe("exportNeoAnswerTableAsCsv", () => {

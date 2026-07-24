@@ -43,9 +43,9 @@ describe("buildEvidenceFallbackAnswer", () => {
       fontes: [],
     });
     expect(answer.status).toBe("parcial");
-    expect(answer.resumoExecutivo).toContain("9 etapa(s)");
-    const fatosBloco = answer.blocos.find((b) => b.tipo === "fatos");
-    expect(fatosBloco && "itens" in fatosBloco ? fatosBloco.itens.length : 0).toBe(9);
+    expect(answer.respostaDireta).toContain("9 etapa(s)");
+    expect(answer.achados.length).toBe(9);
+    expect(answer.matrizEvidencias.length).toBe(9);
   });
 
   it("never fabricates a source id — only ever cites URLs actually passed in", () => {
@@ -57,14 +57,15 @@ describe("buildEvidenceFallbackAnswer", () => {
     expect(answer.fontes).toEqual([expect.objectContaining({ url: "https://real.example", id: "f1" })]);
   });
 
-  it("lists failed steps under informacoesAusentes instead of silently dropping them", () => {
+  it("lists failed steps under lacunas instead of silently dropping them", () => {
     const answer = buildEvidenceFallbackAnswer({
       motivo: "x",
       etapas: [{ nomePublico: "Capturando página", ok: false, erroPublico: "Tempo esgotado." }],
       fontes: [],
     });
-    expect(answer.informacoesAusentes[0]).toContain("Capturando página");
-    expect(answer.informacoesAusentes[0]).toContain("Tempo esgotado.");
+    expect(answer.lacunas[0].descricao).toContain("Capturando página");
+    expect(answer.lacunas[0].descricao).toContain("Tempo esgotado.");
+    expect(answer.lacunas[0].tipo).toBe("nao_encontrado");
   });
 
   it("never renders as completo — always parcial, since it's a fallback by definition", () => {
