@@ -1,5 +1,5 @@
 import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
-import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, validationErrorResponse } from "@/lib/api-utils";
+import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { schemaGenRequestSchema } from "@/lib/integration/schemas";
 
 export const runtime = "nodejs";
@@ -11,6 +11,9 @@ export const dynamic = "force-dynamic";
  * the client (manual schema editing keeps working either way).
  */
 export async function POST(request: Request) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const originRejection = rejectUntrustedOrigin(request);
   if (originRejection) return originRejection;
 

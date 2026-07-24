@@ -67,6 +67,13 @@ não as remova, não as contorne "só desta vez", e não as enfraqueça para res
 
 - A integração externa vive isolada em `src/server/integrations/web-intelligence/`
   (`client.ts`, `errors.ts`, `types.ts`, `sanitize.ts`). `client.ts` importa `"server-only"` no topo.
+- O mesmo padrão vale para autenticação: `src/server/db/` (cliente Supabase — só Postgres, nunca Auth
+  do provedor — e repositórios) e `src/server/auth/` (sessões, senha, rate limit) importam
+  `"server-only"`. `password_hash` e `token_hash` nunca saem dessas pastas; a UI só recebe `id`,
+  `nome`, `email` via `obterSessaoAtual()`/`exigirUsuario()`. Helpers sem segredo e usados também pelo
+  script `npm run usuario:criar` (que não pode importar módulos `"server-only"`) ficam em
+  `src/lib/auth/` (validação, sanitização do destino de redirecionamento) — mesma lógica de separação
+  do item abaixo.
 - Nenhum componente com `"use client"` pode importar: o cliente do fornecedor, sua configuração, base
   URL externa, headers externos, chaves, ou qualquer tipo/função que exponha mensagens externas sem
   sanitização.

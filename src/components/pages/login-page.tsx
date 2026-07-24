@@ -2,15 +2,18 @@
 
 import * as React from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { sanitizeInternalPath } from "@/lib/auth/redirect-target";
 import styles from "./login-page.module.css";
 
-/**
- * Interface-only login screen ported from the "liquid glass" mockup.
- * No authentication is wired up — submit only simulates a request and
- * reports that the form is ready to be connected to real auth.
- */
+const GENERIC_LOGIN_ERROR = "E-mail ou senha inválidos.";
+const RATE_LIMIT_ERROR = "Muitas tentativas. Tente novamente em alguns minutos.";
+const TEMPORARY_ERROR = "Não foi possível entrar agora. Tente novamente em instantes.";
+
+/** "Liquid glass" login screen, wired to POST /api/triad3/sessao/entrar. */
 export function LoginPage() {
+  const searchParams = useSearchParams();
   const sceneRef = React.useRef<HTMLDivElement>(null);
   const cardRef = React.useRef<HTMLDivElement>(null);
   const emailRef = React.useRef<HTMLInputElement>(null);
@@ -87,7 +90,7 @@ export function LoginPage() {
     }
 
     if (isPasswordInvalid) {
-      setStatus({ message: "A senha precisa ter pelo menos 6 caracteres.", isError: true });
+      setStatus({ message: "Informe sua senha.", isError: true });
       password.focus();
       return false;
     }
@@ -96,20 +99,54 @@ export function LoginPage() {
     return true;
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!validate()) return;
+    if (busy || !validate()) return;
+
+    const formData = new FormData(event.currentTarget);
+    const manterConectado = formData.get("remember") === "on";
 
     setBusy(true);
     setStatus({ message: "Validando suas credenciais…", isError: false });
 
-    window.setTimeout(() => {
-      setBusy(false);
-      setStatus({
-        message: "Demonstração pronta — conecte este formulário à autenticação do projeto.",
-        isError: false,
+    let response: Response;
+    try {
+      response = await fetch("/api/triad3/sessao/entrar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: emailRef.current?.value ?? "",
+          senha: passwordRef.current?.value ?? "",
+          manterConectado,
+        }),
       });
-    }, 1150);
+    } catch {
+      setBusy(false);
+      setStatus({ message: TEMPORARY_ERROR, isError: true });
+      return;
+    }
+
+    if (response.ok) {
+      setStatus({ message: "Tudo certo — redirecionando…", isError: false });
+      const destino = sanitizeInternalPath(searchParams.get("retorno"), "/");
+      window.location.href = destino;
+      return; // keep the busy/spinner state until the browser navigates away
+    }
+
+    setBusy(false);
+    const body: unknown = await response.json().catch(() => null);
+    const errorType =
+      body && typeof body === "object" && "error" in body && body.error && typeof body.error === "object" && "type" in body.error
+        ? (body.error as { type?: unknown }).type
+        : undefined;
+
+    if (response.status === 429 || errorType === "rate_limited") {
+      setStatus({ message: RATE_LIMIT_ERROR, isError: true });
+    } else if (response.status === 401) {
+      setStatus({ message: GENERIC_LOGIN_ERROR, isError: true });
+    } else {
+      setStatus({ message: TEMPORARY_ERROR, isError: true });
+    }
   };
 
   const togglePasswordVisibility = () => {
@@ -118,13 +155,10 @@ export function LoginPage() {
   };
 
   const handleForgotPassword = () => {
-    const email = emailRef.current;
-    if (email?.validity.valid) {
-      setStatus({ message: `Enviaremos as instruções de recuperação para ${email.value}.`, isError: false });
-    } else {
-      setStatus({ message: "Informe seu e-mail para recuperar o acesso.", isError: false });
-      email?.focus();
-    }
+    setStatus({
+      message: "Para recuperar o acesso, entre em contato com o administrador do Triad3 Search.",
+      isError: false,
+    });
   };
 
   return (
@@ -223,7 +257,6 @@ export function LoginPage() {
                   type={passwordVisible ? "text" : "password"}
                   autoComplete="current-password"
                   placeholder=" "
-                  minLength={6}
                   aria-describedby="login-form-status"
                   required
                   onChange={() => clearFieldError("password")}

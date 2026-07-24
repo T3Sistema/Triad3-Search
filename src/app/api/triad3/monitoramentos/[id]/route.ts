@@ -1,5 +1,5 @@
 import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
-import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, validationErrorResponse } from "@/lib/api-utils";
+import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { monitorPatchRequestSchema } from "@/lib/integration/schemas";
 import { pruneFetchConfig } from "@/lib/integration/formats";
 import type { MonitorResponse } from "@/server/integrations/web-intelligence/types";
@@ -10,6 +10,9 @@ export const dynamic = "force-dynamic";
 type Params = Promise<{ id: string }>;
 
 export async function GET(_request: Request, ctx: { params: Params }) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const { id } = await ctx.params;
   if (!id) return validationErrorResponse("ID do monitor é obrigatório.");
 
@@ -19,6 +22,9 @@ export async function GET(_request: Request, ctx: { params: Params }) {
 }
 
 export async function PATCH(request: Request, ctx: { params: Params }) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const originRejection = rejectUntrustedOrigin(request);
   if (originRejection) return originRejection;
 
@@ -46,6 +52,9 @@ export async function PATCH(request: Request, ctx: { params: Params }) {
 }
 
 export async function DELETE(request: Request, ctx: { params: Params }) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const originRejection = rejectUntrustedOrigin(request);
   if (originRejection) return originRejection;
 

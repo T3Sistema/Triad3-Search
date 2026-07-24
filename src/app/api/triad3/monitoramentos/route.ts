@@ -1,5 +1,5 @@
 import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
-import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, validationErrorResponse } from "@/lib/api-utils";
+import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { monitorCreateRequestSchema, monitorListQuerySchema } from "@/lib/integration/schemas";
 import { pruneFetchConfig } from "@/lib/integration/formats";
 import type { MonitorListResponse, MonitorResponse } from "@/server/integrations/web-intelligence/types";
@@ -8,6 +8,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const parsed = monitorListQuerySchema.safeParse({
     page: searchParams.get("page") ?? undefined,
@@ -26,6 +29,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const originRejection = rejectUntrustedOrigin(request);
   if (originRejection) return originRejection;
 

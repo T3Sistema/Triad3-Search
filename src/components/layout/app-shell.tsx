@@ -4,11 +4,14 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
+import type { UsuarioPublico } from "@/server/auth/sessions";
 
-// Routes that render their own full-bleed layout, without the sidebar/topbar chrome.
-const BARE_ROUTES = new Set(["/login"]);
+interface AppShellProps {
+  usuario: UsuarioPublico;
+  children: React.ReactNode;
+}
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ usuario, children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const pathname = usePathname();
   const [prevPathname, setPrevPathname] = React.useState(pathname);
@@ -18,15 +21,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setMobileOpen(false);
   }
 
-  if (BARE_ROUTES.has(pathname)) {
-    return <>{children}</>;
-  }
-
   return (
     <div className="flex min-h-screen bg-app-bg">
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onOpenMobileMenu={() => setMobileOpen(true)} />
+        <Topbar usuario={usuario} onOpenMobileMenu={() => setMobileOpen(true)} />
         <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6">{children}</main>
       </div>
     </div>

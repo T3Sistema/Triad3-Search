@@ -26,7 +26,7 @@ export function CreditsWidget() {
         type="button"
         variant="ghost"
         size="icon"
-        className="h-7 w-7 sm:h-9 sm:w-9"
+        className="hidden h-7 w-7 sm:flex sm:h-9 sm:w-9"
         onClick={refresh}
         disabled={isFetching}
         aria-label="Atualizar créditos"

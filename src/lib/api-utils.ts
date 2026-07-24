@@ -1,6 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { toErrorResponseBody, type NormalizedError } from "@/server/integrations/web-intelligence/errors";
+import { obterSessaoAtual, type UsuarioPublico } from "@/server/auth/sessions";
 
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024; // 2MB, matches the raw HTML/Markdown limit.
 
@@ -61,6 +62,27 @@ export function rejectUntrustedOrigin(request: Request): NextResponse | null {
 }
 
 export { isHttpUrl } from "./url";
+
+/**
+ * Every private API route must call this before doing any work — the
+ * definitive auth check happens here, in the backend, never in the browser
+ * or in src/proxy.ts (which only does an optimistic cookie-presence check).
+ */
+export async function requireApiUser(): Promise<
+  { ok: true; user: UsuarioPublico } | { ok: false; response: NextResponse }
+> {
+  const user = await obterSessaoAtual();
+  if (!user) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: { type: "unauthorized", message: "Sessão inválida ou expirada." } },
+        { status: 401, headers: NO_STORE_HEADERS },
+      ),
+    };
+  }
+  return { ok: true, user };
+}
 
 export async function readJsonBody(request: Request): Promise<
   { ok: true; body: unknown } | { ok: false; response: NextResponse }

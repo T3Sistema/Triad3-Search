@@ -1,5 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const requireApiUser = vi.fn();
+vi.mock("@/lib/api-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api-utils")>();
+  return { ...actual, requireApiUser: () => requireApiUser() };
+});
+
 import { GET, POST } from "./route";
+
+beforeEach(() => {
+  requireApiUser.mockResolvedValue({ ok: true, user: { id: "u1", nome: "Ana", email: "ana@triad3.com" } });
+});
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });

@@ -1,5 +1,5 @@
 import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
-import { jsonError, jsonOk, rejectUntrustedOrigin, validationErrorResponse } from "@/lib/api-utils";
+import { jsonError, jsonOk, rejectUntrustedOrigin, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import type { CrawlStatusResponse } from "@/server/integrations/web-intelligence/types";
 
 export const runtime = "nodejs";
@@ -8,6 +8,9 @@ export const dynamic = "force-dynamic";
 type Params = Promise<{ id: string }>;
 
 export async function GET(_request: Request, ctx: { params: Params }) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const { id } = await ctx.params;
   if (!id) return validationErrorResponse("ID do crawl é obrigatório.");
 
@@ -17,6 +20,9 @@ export async function GET(_request: Request, ctx: { params: Params }) {
 }
 
 export async function DELETE(request: Request, ctx: { params: Params }) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const originRejection = rejectUntrustedOrigin(request);
   if (originRejection) return originRejection;
 

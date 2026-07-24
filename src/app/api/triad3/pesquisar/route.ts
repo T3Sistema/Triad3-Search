@@ -1,5 +1,5 @@
 import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
-import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, validationErrorResponse } from "@/lib/api-utils";
+import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { searchRequestSchema } from "@/lib/integration/schemas";
 import { pruneFetchConfig } from "@/lib/integration/formats";
 import type { SearchResponse } from "@/server/integrations/web-intelligence/types";
@@ -9,6 +9,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const originRejection = rejectUntrustedOrigin(request);
   if (originRejection) return originRejection;
 
