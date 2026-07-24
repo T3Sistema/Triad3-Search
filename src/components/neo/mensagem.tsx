@@ -35,6 +35,7 @@ export function MensagemAssistente({ mensagem, ...acoes }: { mensagem: NeoMensag
             mensagemId={mensagem.id}
             answer={answer}
             geradoEm={mensagem.criadoEm}
+            execucaoId={mensagem.execucaoId}
             onContinuar={mensagem.status === "parcial" ? acoes.onContinuar : undefined}
           />
         </div>

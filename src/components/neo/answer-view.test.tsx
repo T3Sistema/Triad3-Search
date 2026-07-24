@@ -1,9 +1,17 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { render as rtlRender, screen, fireEvent, within, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AnswerView } from "./answer-view";
 import { normalizeNeoAnswer, NEO_ANSWER_VERSION_1 } from "@/lib/neo/answer";
 import { baseNeoAnswer } from "@/lib/neo/answer-fixtures";
+
+/** AnswerView reads execution stats via react-query (useNeoExecucao) — every test needs a provider, even when execucaoId is never passed. */
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 describe("AnswerView — relatório completo", () => {
   it("leads with consolidated findings and the direct answer before any source ever appears — never a link list first", () => {
@@ -120,6 +128,38 @@ describe("AnswerView — pessoa relacionada sem evidência de dono", () => {
     expect(screen.getByText("Pessoa relacionada")).toBeInTheDocument();
     expect(screen.queryByText(/dono/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/proprietário/i)).not.toBeInTheDocument();
+  });
+
+  it("distinguishes administrador, sócio and proprietário as separate, independently evidenced classifications — never collapsed into one label", () => {
+    const answer = baseNeoAnswer({
+      blocos: [
+        {
+          tipo: "pessoa",
+          nome: "Ana Beatriz Souza",
+          fotoUrl: null,
+          papeis: [
+            { classificacao: "administrador", nivelEvidencia: "bem_sustentado", evidencia: "Contrato social.", fontesIds: [] },
+            { classificacao: "socio", nivelEvidencia: "confirmado", evidencia: "Quadro societário oficial.", fontesIds: [] },
+          ],
+          organizacoesRelacionadas: [],
+          atributos: [],
+          fontesIds: [],
+        },
+        {
+          tipo: "pessoa",
+          nome: "Outro Investidor",
+          fotoUrl: null,
+          papeis: [{ classificacao: "proprietario", nivelEvidencia: "indicio", evidencia: null, fontesIds: [] }],
+          organizacoesRelacionadas: [],
+          atributos: [],
+          fontesIds: [],
+        },
+      ],
+    });
+    render(<AnswerView mensagemId="m1" answer={answer} />);
+    expect(screen.getByText("Administrador")).toBeInTheDocument();
+    expect(screen.getByText("Sócio")).toBeInTheDocument();
+    expect(screen.getByText("Proprietário")).toBeInTheDocument();
   });
 });
 
@@ -266,6 +306,52 @@ describe("AnswerView — footer", () => {
     render(<AnswerView mensagemId="m1" answer={baseNeoAnswer()} geradoEm="2026-07-24T10:00:00.000Z" />);
     expect(screen.getByText(/representam o momento da consulta/)).toBeInTheDocument();
     expect(screen.getByText(/devem ser validadas/)).toBeInTheDocument();
+  });
+});
+
+describe("AnswerView — transparência de operações", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows a discreet operations-vs-sources line, never conflating link counts with the investigation's result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            id: "exec1",
+            conversaId: "c1",
+            status: "concluida",
+            camposSolicitados: [],
+            camposEncontrados: [],
+            camposAusentes: [],
+            erroPublico: null,
+            iniciadoEm: "t",
+            concluidoEm: "t",
+            canceladoEm: null,
+            etapas: [
+              { id: "e1", ordem: 1, tipo: "ferramenta", nomePublico: "Pesquisando fontes", status: "concluida", erroPublico: null },
+              { id: "e2", ordem: 2, tipo: "ferramenta", nomePublico: "Lendo página", status: "concluida", erroPublico: null },
+              { id: "e3", ordem: 3, tipo: "ferramenta", nomePublico: "Extraindo informações", status: "concluida", erroPublico: null },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    const answer = baseNeoAnswer({
+      fontes: [
+        { id: "f1", titulo: "Fonte A", url: "https://a.example", dominio: "a.example", dataAcesso: "2026-01-01" },
+        { id: "f2", titulo: "Fonte B", url: "https://b.example", dominio: "b.example", dataAcesso: "2026-01-01" },
+      ],
+    });
+    render(<AnswerView mensagemId="m1" answer={answer} execucaoId="exec1" />);
+    await waitFor(() => expect(screen.getByText(/operaç(ão|ões) realizada/)).toBeInTheDocument());
+    expect(screen.getByText("3 operações realizadas · 2 fontes utilizadas")).toBeInTheDocument();
+  });
+
+  it("never shows the operations line when no execucaoId is available", () => {
+    render(<AnswerView mensagemId="m1" answer={baseNeoAnswer()} />);
+    expect(screen.queryByText(/operaç(ão|ões) realizada/)).not.toBeInTheDocument();
   });
 });
 

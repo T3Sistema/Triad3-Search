@@ -568,3 +568,214 @@ describe("runExecutor — prompt injection vindo de ferramenta", () => {
     expect(monitorExecute).not.toHaveBeenCalled();
   });
 });
+
+function textResponse(body: unknown): FakeResponse {
+  return { usage: { input_tokens: 5, output_tokens: 5 }, output_text: JSON.stringify(body) } as unknown as FakeResponse;
+}
+
+const planComObjetivos = { ...plan, camposSolicitados: ["CNPJ", "Instagram oficial"] };
+
+describe("runExecutor — objetivos verificáveis (encerramento antecipado)", () => {
+  it("seeds one objective per requested field and stops as soon as the evaluation says they're all resolved — even on round 1", async () => {
+    registerNeoTool({
+      name: "pesquisar_web" as never,
+      nomePublico: "Pesquisando",
+      description: "d",
+      persistent: false,
+      timeoutMs: 100,
+      parameters: z.object({ consulta: z.string() }),
+      execute: async (): Promise<NeoToolExecutionResult> => ({ ok: true, resumo: { resultados: [1] }, fontes: [], parcial: false, informacoesAusentes: [] }),
+    });
+
+    vi.mocked(callNeoResponses)
+      .mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { consulta: "alvo CNPJ" } }, { name: "pesquisar_web", args: { consulta: "alvo Instagram" } }]))
+      .mockResolvedValueOnce(
+        textResponse({
+          objetivos: [
+            { descricao: "CNPJ", status: "encontrado" },
+            { descricao: "Instagram oficial", status: "encontrado" },
+          ],
+          podeEncerrar: true,
+          motivo: "Tudo encontrado já na primeira rodada.",
+        }),
+      );
+
+    const cb = callbacks();
+    const { outcome, state } = await runExecutor(planComObjetivos, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
+    expect(outcome).toEqual({ status: "sem_ferramentas" });
+    expect(state.round).toBe(1);
+    expect(state.objetivos.every((o) => o.status === "encontrado")).toBe(true);
+    // Decision call + evaluation call only — never a second round-decision call.
+    expect(callNeoResponses).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps going for a genuinely partial result, then stops once the remaining objective is justifiably classified instead of exhausting rounds", async () => {
+    registerNeoTool({
+      name: "pesquisar_web" as never,
+      nomePublico: "Pesquisando",
+      description: "d",
+      persistent: false,
+      timeoutMs: 100,
+      parameters: z.object({ consulta: z.string() }),
+      execute: async (): Promise<NeoToolExecutionResult> => ({ ok: true, resumo: { resultados: [1] }, fontes: [], parcial: false, informacoesAusentes: [] }),
+    });
+
+    vi.mocked(callNeoResponses)
+      .mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { consulta: "alvo CNPJ" } }]))
+      .mockResolvedValueOnce(
+        textResponse({
+          objetivos: [
+            { descricao: "CNPJ", status: "encontrado" },
+            { descricao: "Instagram oficial", status: "pendente" },
+          ],
+          podeEncerrar: false,
+          motivo: "Instagram ainda não pesquisado.",
+        }),
+      )
+      .mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { consulta: "alvo Instagram" } }]))
+      .mockResolvedValueOnce(
+        textResponse({
+          objetivos: [
+            { descricao: "CNPJ", status: "encontrado" },
+            { descricao: "Instagram oficial", status: "nao_encontrado" },
+          ],
+          podeEncerrar: true,
+          motivo: "Instagram não foi localizado apesar da tentativa.",
+        }),
+      );
+
+    const cb = callbacks();
+    const { outcome, state } = await runExecutor(planComObjetivos, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
+    expect(outcome).toEqual({ status: "sem_ferramentas" });
+    expect(state.round).toBe(2);
+    expect(state.round).toBeLessThan(NEO_LIMITS.maxRounds);
+    expect(state.objetivos).toEqual([
+      { descricao: "CNPJ", status: "encontrado" },
+      { descricao: "Instagram oficial", status: "nao_encontrado" },
+    ]);
+  });
+
+  it("stops early even when nothing relevant was found at all, instead of burning every remaining round", async () => {
+    registerNeoTool({
+      name: "pesquisar_web" as never,
+      nomePublico: "Pesquisando",
+      description: "d",
+      persistent: false,
+      timeoutMs: 100,
+      parameters: z.object({ consulta: z.string() }),
+      execute: async (): Promise<NeoToolExecutionResult> => ({ ok: true, resumo: { resultados: [] }, fontes: [], parcial: false, informacoesAusentes: ["nada encontrado"] }),
+    });
+
+    vi.mocked(callNeoResponses)
+      .mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { consulta: "alvo CNPJ" } }]))
+      .mockResolvedValueOnce(
+        textResponse({
+          objetivos: [{ descricao: "CNPJ", status: "nao_encontrado" }],
+          podeEncerrar: true,
+          motivo: "Nenhuma fonte relevante encontrada; não há mais estratégia de busca a tentar.",
+        }),
+      );
+
+    const cb = callbacks();
+    const { outcome, state } = await runExecutor({ ...plan, camposSolicitados: ["CNPJ"] }, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
+    expect(outcome).toEqual({ status: "sem_ferramentas" });
+    expect(state.round).toBe(1);
+    expect(state.objetivos).toEqual([{ descricao: "CNPJ", status: "nao_encontrado" }]);
+  });
+
+  it("fails open when the evaluation call itself fails — keeps running the loop exactly as it would without objective-tracking", async () => {
+    registerNeoTool({
+      name: "pesquisar_web" as never,
+      nomePublico: "Pesquisando",
+      description: "d",
+      persistent: false,
+      timeoutMs: 100,
+      parameters: z.object({ consulta: z.string() }),
+      execute: async (): Promise<NeoToolExecutionResult> => ({ ok: true, resumo: { resultados: [1] }, fontes: [], parcial: false, informacoesAusentes: [] }),
+    });
+
+    vi.mocked(callNeoResponses)
+      .mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { consulta: "alvo CNPJ" } }]))
+      .mockRejectedValueOnce(new Error("falha ao avaliar objetivos"))
+      .mockResolvedValueOnce(noToolsResponse());
+
+    const cb = callbacks();
+    const { outcome, state } = await runExecutor(planComObjetivos, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
+    expect(outcome).toEqual({ status: "sem_ferramentas" });
+    // Objectives stay exactly as seeded — the failed evaluation never got to update them.
+    expect(state.objetivos).toEqual([
+      { descricao: "CNPJ", status: "pendente" },
+      { descricao: "Instagram oficial", status: "pendente" },
+    ]);
+  });
+
+  it("never makes an evaluation call at all when the plan named no specific objective — zero added cost for open-ended investigations", async () => {
+    vi.mocked(callNeoResponses).mockResolvedValueOnce(noToolsResponse());
+    const cb = callbacks();
+    await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
+    expect(callNeoResponses).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes the entity-confusion risk flagged by the planner in the round prompt, when present", async () => {
+    vi.mocked(callNeoResponses).mockResolvedValueOnce(noToolsResponse());
+    const riskyPlan = { ...plan, riscoConfusaoEntidades: "Existem duas empresas com nomes muito parecidos no mesmo setor." };
+    const cb = callbacks();
+    await runExecutor(riskyPlan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
+    const [[params]] = vi.mocked(callNeoResponses).mock.calls;
+    expect((params as { input: string }).input).toContain("duas empresas com nomes muito parecidos");
+  });
+});
+
+describe("runExecutor — deduplicação semântica de pesquisas", () => {
+  it("treats a reworded-but-equivalent query as a repeat and never re-executes the tool", async () => {
+    const execute = vi.fn(async (): Promise<NeoToolExecutionResult> => ({ ok: true, resumo: { resultados: [1] }, fontes: [], parcial: false, informacoesAusentes: [] }));
+    registerNeoTool({
+      name: "pesquisar_web" as never,
+      nomePublico: "Pesquisando",
+      description: "d",
+      persistent: false,
+      timeoutMs: 100,
+      parameters: z.object({ consulta: z.string() }),
+      execute,
+    });
+
+    vi.mocked(callNeoResponses)
+      .mockResolvedValueOnce(
+        fakeResponse([
+          { name: "pesquisar_web", args: { consulta: "carango.com.br CNPJ" } },
+          { name: "pesquisar_web", args: { consulta: "CNPJ carango.com.br" } },
+          { name: "pesquisar_web", args: { consulta: "qual o CNPJ do site carango.com.br" } },
+        ]),
+      )
+      .mockResolvedValueOnce(noToolsResponse());
+
+    const cb = callbacks();
+    const { state } = await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(state.evidence).toHaveLength(3);
+    const avisos = state.evidence.filter((e) => (e.resumo as { aviso?: string } | null)?.aviso);
+    expect(avisos).toHaveLength(2);
+  });
+
+  it("still allows a new query about the same field once a genuinely new identifier is part of it", async () => {
+    const execute = vi.fn(async (): Promise<NeoToolExecutionResult> => ({ ok: true, resumo: { resultados: [1] }, fontes: [], parcial: false, informacoesAusentes: [] }));
+    registerNeoTool({
+      name: "pesquisar_web" as never,
+      nomePublico: "Pesquisando",
+      description: "d",
+      persistent: false,
+      timeoutMs: 100,
+      parameters: z.object({ consulta: z.string() }),
+      execute,
+    });
+
+    vi.mocked(callNeoResponses)
+      .mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { consulta: "carango.com.br CNPJ" } }]))
+      .mockResolvedValueOnce(fakeResponse([{ name: "pesquisar_web", args: { consulta: "B e B Produções e Eventos CNPJ" } }]))
+      .mockResolvedValueOnce(noToolsResponse());
+
+    const cb = callbacks();
+    await runExecutor(plan, "pergunta", cb, { usuarioId: "u1", signal: ctx.signal, budget: ctx.budget });
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+});

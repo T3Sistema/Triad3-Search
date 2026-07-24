@@ -16,7 +16,7 @@ registerNeoTool({
   name: "extrair_dados",
   nomePublico: "Extraindo informações",
   description:
-    "Transforma o conteúdo de uma página (por URL já conhecida, ou markdown já capturado por outra etapa) em dados estruturados, buscando apenas os campos pedidos em `campos`. Informe exatamente uma fonte: `url` OU `markdown` (nunca as duas, nunca nenhuma). Só retorna campos sustentados pelo conteúdo da fonte.",
+    "Transforma o conteúdo de uma página (por URL já conhecida, ou markdown já capturado por outra etapa) em dados estruturados, buscando apenas os campos pedidos em `campos`. Use logo após capturar_pagina (ou quando um resultado de pesquisa já tiver o conteúdo necessário) para obter campos específicos como documentos, identificadores, contatos ou nomes — é mais confiável do que tentar localizar o dado manualmente no texto bruto. Informe exatamente uma fonte: `url` OU `markdown` (nunca as duas, nunca nenhuma). Só retorna campos sustentados pelo conteúdo da fonte.",
   persistent: false,
   timeoutMs: 45_000,
   parameters: extrairParamsSchema,

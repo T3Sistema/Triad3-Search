@@ -9,6 +9,7 @@ import { ExportMenu } from "@/components/neo/export-menu";
 import { SafeLink } from "@/components/neo/safe-link";
 import { MarkdownView } from "@/components/viewer/markdown-view";
 import { buildFonteUsageMap } from "@/lib/neo/fonte-usage";
+import { useNeoExecucao } from "@/hooks/use-neo-conversas";
 import {
   translateNeoAnswerStatus,
   translateNivelEvidencia,
@@ -55,14 +56,18 @@ export interface AnswerViewProps {
   answer: NeoAnswer;
   /** Message creation timestamp — used for "Gerado em", never trusted from the model itself. */
   geradoEm?: string | null;
+  /** When provided, shows a discreet "N operações realizadas · M fontes utilizadas" line — never "N links encontrados" as if that were the result. */
+  execucaoId?: string | null;
   onContinuar?: () => void;
 }
 
-export function AnswerView({ mensagemId, answer, geradoEm, onContinuar }: AnswerViewProps) {
+export function AnswerView({ mensagemId, answer, geradoEm, execucaoId, onContinuar }: AnswerViewProps) {
   const [fontesAbertas, setFontesAbertas] = React.useState(false);
   const fonteUsage = React.useMemo(() => buildFonteUsageMap(answer), [answer]);
   const fonteIndex = React.useMemo(() => new Map(answer.fontes.map((f, i) => [f.id, i + 1])), [answer.fontes]);
   const abrirFontes = React.useCallback(() => setFontesAbertas(true), []);
+  const execucaoQuery = useNeoExecucao(execucaoId ?? undefined, { enabled: Boolean(execucaoId) });
+  const operacoesRealizadas = execucaoQuery.data?.etapas.filter((e) => e.tipo === "ferramenta").length;
 
   const podeContinuar = answer.status === "parcial" && answer.lacunas.length > 0 && Boolean(onContinuar);
   const temAchadosOuResposta = answer.achados.length > 0 || Boolean(answer.respostaDireta);
@@ -82,6 +87,12 @@ export function AnswerView({ mensagemId, answer, geradoEm, onContinuar }: Answer
           </span>
           {geradoEm ? <span>Gerado em {formatDateTime(geradoEm)}</span> : null}
         </div>
+        {typeof operacoesRealizadas === "number" ? (
+          <p className="text-xs text-text-secondary">
+            {operacoesRealizadas} operaç{operacoesRealizadas === 1 ? "ão" : "ões"} realizada{operacoesRealizadas === 1 ? "" : "s"} · {answer.fontes.length} fonte
+            {answer.fontes.length === 1 ? "" : "s"} utilizada{answer.fontes.length === 1 ? "" : "s"}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <ExportMenu mensagemId={mensagemId} answer={answer} />
           {podeContinuar ? (

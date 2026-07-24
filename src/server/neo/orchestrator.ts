@@ -210,6 +210,9 @@ async function buildContinuationSeed(usuarioId: string, conversaId: string, cont
     fontes: [],
     tokensEntrada: 0,
     tokensSaida: 0,
+    // Left empty on purpose — runExecutor seeds it from the freshly re-planned
+    // investigation's own camposSolicitados/dadosNecessarios once this seed is used.
+    objetivos: [],
   };
 
   for (const etapa of etapas) {
