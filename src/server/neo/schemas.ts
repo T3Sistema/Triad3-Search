@@ -25,6 +25,29 @@ export const neoPlanSchema = z.object({
 });
 export type NeoPlan = z.infer<typeof neoPlanSchema>;
 
+/**
+ * Verifiable per-request objectives, tracked across the executor's tool-calling
+ * rounds (src/server/neo/objectives.ts, executor.ts) so the loop can stop as
+ * soon as what the user actually asked for has been resolved — instead of
+ * continuing just because tool budget is still available.
+ */
+export const NEO_OBJETIVO_STATUS = ["pendente", "encontrado", "parcial", "nao_confirmado", "nao_encontrado"] as const;
+export type NeoObjetivoStatus = (typeof NEO_OBJETIVO_STATUS)[number];
+
+export const neoObjetivoSchema = z.object({
+  descricao: z.string(),
+  status: z.enum(NEO_OBJETIVO_STATUS),
+});
+export type NeoObjetivo = z.infer<typeof neoObjetivoSchema>;
+
+/** Structured Output schema for the lightweight per-round objective-coverage check. */
+export const neoAvaliacaoObjetivosSchema = z.object({
+  objetivos: z.array(neoObjetivoSchema),
+  podeEncerrar: z.boolean(),
+  motivo: z.string().nullable(),
+});
+export type NeoAvaliacaoObjetivos = z.infer<typeof neoAvaliacaoObjetivosSchema>;
+
 /** Rolling conversation summary, refreshed by the same NEO_MODEL when history grows too long. */
 export const neoResumoConversaSchema = z.object({
   resumo: z.string(),

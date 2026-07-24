@@ -183,7 +183,7 @@ export function useNeoStream(conversaId: string | undefined) {
       try {
         const response = await fetchIt(controller.signal);
         if (!response.ok) {
-          let mensagem = "Não foi possível iniciar a investigação.";
+          let mensagem = "Não foi possível iniciar a análise.";
           try {
             const body = (await response.json()) as { error?: { message?: string } };
             if (body?.error?.message) mensagem = body.error.message;
@@ -199,7 +199,7 @@ export function useNeoStream(conversaId: string | undefined) {
         refreshMensagens();
       } catch (err) {
         if (controller.signal.aborted) return;
-        const mensagem = err instanceof ApiRequestError ? err.message : "Não foi possível concluir a investigação.";
+        const mensagem = err instanceof ApiRequestError ? err.message : "Não foi possível concluir a análise.";
         dispatch({ type: "erro", mensagem });
       } finally {
         clearInterval(watchdog);

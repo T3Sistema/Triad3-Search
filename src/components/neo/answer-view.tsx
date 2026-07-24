@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { NeoAnswer } from "@/lib/neo/answer";
+import type { NeoAnswer, NeoBloco } from "@/lib/neo/answer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BlocoView } from "@/components/neo/answer-blocks";
@@ -9,6 +9,7 @@ import { ExportMenu } from "@/components/neo/export-menu";
 import { SafeLink } from "@/components/neo/safe-link";
 import { MarkdownView } from "@/components/viewer/markdown-view";
 import { buildFonteUsageMap } from "@/lib/neo/fonte-usage";
+import { useNeoExecucao } from "@/hooks/use-neo-conversas";
 import {
   translateNeoAnswerStatus,
   translateNivelEvidencia,
@@ -17,7 +18,7 @@ import {
   translateEvidenciaMatrizClassificacao,
 } from "@/lib/ui/status-labels";
 import { formatDateTime } from "@/lib/ui/formatting";
-import { ChevronDown, ChevronUp, PlayCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, PlayCircle, Pencil, RotateCcw } from "lucide-react";
 
 function statusTone(status: NeoAnswer["status"]) {
   if (status === "completo") return "success" as const;
@@ -55,30 +56,89 @@ export interface AnswerViewProps {
   answer: NeoAnswer;
   /** Message creation timestamp — used for "Gerado em", never trusted from the model itself. */
   geradoEm?: string | null;
+  /** When provided, shows a discreet "N operações realizadas · M fontes utilizadas" line — never "N links encontrados" as if that were the result. */
+  execucaoId?: string | null;
   onContinuar?: () => void;
+  /** Only rendered in the "nao_concluido" compact state, alongside onAjustarSolicitacao. */
+  onTentarNovamente?: () => void;
+  /** Only rendered in the "nao_concluido" compact state — lets the user edit the original request instead of resending it as-is. */
+  onAjustarSolicitacao?: () => void;
 }
 
-export function AnswerView({ mensagemId, answer, geradoEm, onContinuar }: AnswerViewProps) {
+export function AnswerView({
+  mensagemId,
+  answer,
+  geradoEm,
+  execucaoId,
+  onContinuar,
+  onTentarNovamente,
+  onAjustarSolicitacao,
+}: AnswerViewProps) {
   const [fontesAbertas, setFontesAbertas] = React.useState(false);
   const fonteUsage = React.useMemo(() => buildFonteUsageMap(answer), [answer]);
   const fonteIndex = React.useMemo(() => new Map(answer.fontes.map((f, i) => [f.id, i + 1])), [answer.fontes]);
   const abrirFontes = React.useCallback(() => setFontesAbertas(true), []);
+  const execucaoQuery = useNeoExecucao(execucaoId ?? undefined, { enabled: Boolean(execucaoId) });
+  const operacoesRealizadas = execucaoQuery.data?.etapas.filter((e) => e.tipo === "ferramenta").length;
+
+  if (answer.status === "nao_concluido") {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-text-secondary">Neo · Relatório de inteligência</span>
+          <Badge variant="neutral" className="uppercase">
+            {translateNeoAnswerStatus(answer.status)}
+          </Badge>
+        </div>
+        <p className="text-base font-semibold text-text-primary">{answer.titulo}</p>
+        {answer.respostaDireta ? <p className="text-sm text-text-secondary">{answer.respostaDireta}</p> : null}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          {onTentarNovamente ? (
+            <Button variant="secondary" size="sm" onClick={onTentarNovamente}>
+              <RotateCcw className="h-4 w-4" /> Tentar novamente
+            </Button>
+          ) : null}
+          {onAjustarSolicitacao ? (
+            <Button variant="ghost" size="sm" onClick={onAjustarSolicitacao}>
+              <Pencil className="h-4 w-4" /> Ajustar solicitação
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   const podeContinuar = answer.status === "parcial" && answer.lacunas.length > 0 && Boolean(onContinuar);
   const temAchadosOuResposta = answer.achados.length > 0 || Boolean(answer.respostaDireta);
 
+  const entidadeBlocos = answer.blocos.filter((b): b is Extract<NeoBloco, { tipo: "entidade" }> => b.tipo === "entidade");
+  const presencaDigitalBlocos = answer.blocos.filter(
+    (b): b is Extract<NeoBloco, { tipo: "perfil_social" | "publicacao" }> => b.tipo === "perfil_social" || b.tipo === "publicacao",
+  );
+  const pessoaBlocos = answer.blocos.filter((b): b is Extract<NeoBloco, { tipo: "pessoa" }> => b.tipo === "pessoa");
+  const blocosAgrupados = new Set<NeoBloco>([...entidadeBlocos, ...presencaDigitalBlocos, ...pessoaBlocos]);
+  const outrosBlocos = answer.blocos.filter((b) => !blocosAgrupados.has(b));
+
+  const temPessoas = pessoaBlocos.length > 0;
+  const temLacunas = answer.lacunas.length > 0;
+
   return (
     <div className="space-y-6">
       <header className="space-y-3">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-text-secondary">
-          <span>Neo · Relatório de inteligência</span>
-          <Badge variant={statusTone(answer.status)}>{translateNeoAnswerStatus(answer.status)}</Badge>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-text-secondary">Neo · Relatório de inteligência</span>
+          <Badge variant={statusTone(answer.status)} className="uppercase">
+            {translateNeoAnswerStatus(answer.status)}
+          </Badge>
         </div>
         <h2 className="text-xl font-semibold leading-snug text-text-primary">{answer.titulo}</h2>
         {answer.objetivo ? <p className="text-sm text-text-secondary">{answer.objetivo}</p> : null}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-secondary">
           <span>
-            {answer.fontes.length} fonte{answer.fontes.length === 1 ? "" : "s"} consultada{answer.fontes.length === 1 ? "" : "s"}
+            {typeof operacoesRealizadas === "number"
+              ? `${operacoesRealizadas} operaç${operacoesRealizadas === 1 ? "ão" : "ões"} realizada${operacoesRealizadas === 1 ? "" : "s"} · `
+              : ""}
+            {answer.fontes.length} fonte{answer.fontes.length === 1 ? "" : "s"} utilizada{answer.fontes.length === 1 ? "" : "s"}
           </span>
           {geradoEm ? <span>Gerado em {formatDateTime(geradoEm)}</span> : null}
         </div>
@@ -86,7 +146,7 @@ export function AnswerView({ mensagemId, answer, geradoEm, onContinuar }: Answer
           <ExportMenu mensagemId={mensagemId} answer={answer} />
           {podeContinuar ? (
             <Button variant="primary" size="sm" onClick={onContinuar}>
-              <PlayCircle className="h-4 w-4" /> Continuar investigação
+              <PlayCircle className="h-4 w-4" /> Continuar análise
             </Button>
           ) : null}
         </div>
@@ -115,7 +175,7 @@ export function AnswerView({ mensagemId, answer, geradoEm, onContinuar }: Answer
         <div className="grid gap-4 lg:grid-cols-2">
           {answer.achados.length > 0 ? (
             <div className="rounded-xl border border-border bg-white p-4 shadow-sm sm:p-5">
-              <h3 className="mb-3 text-sm font-semibold text-text-primary">O que a investigação encontrou</h3>
+              <h3 className="mb-3 text-sm font-semibold text-text-primary">Principais descobertas</h3>
               <ol className="space-y-3">
                 {answer.achados.map((a, i) => (
                   <li key={i} className="flex gap-2">
@@ -146,23 +206,59 @@ export function AnswerView({ mensagemId, answer, geradoEm, onContinuar }: Answer
         </div>
       ) : null}
 
-      <div className="space-y-4">
-        {answer.blocos.map((bloco, i) => (
-          <BlocoView bloco={bloco} key={i} />
-        ))}
-      </div>
-
-      {answer.lacunas.length > 0 ? (
-        <div className="rounded-xl border border-border bg-slate-50 p-4">
-          <p className="text-sm font-semibold text-text-primary">O que ainda merece apuração</p>
-          <ul className="mt-2 space-y-2">
-            {answer.lacunas.map((l, i) => (
-              <li key={i} className="flex flex-wrap items-start gap-2 text-sm text-text-secondary">
-                <Badge variant="neutral">{translateLacunaTipo(l.tipo)}</Badge>
-                <span>{l.descricao}</span>
-              </li>
+      {entidadeBlocos.length > 0 ? (
+        <section className="space-y-4">
+          <h3 className="text-sm font-semibold text-text-primary">Dados da organização</h3>
+          <div className="space-y-4">
+            {entidadeBlocos.map((bloco, i) => (
+              <BlocoView bloco={bloco} key={i} />
             ))}
-          </ul>
+          </div>
+        </section>
+      ) : null}
+
+      {presencaDigitalBlocos.length > 0 ? (
+        <section className="space-y-4">
+          <h3 className="text-sm font-semibold text-text-primary">Presença digital</h3>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {presencaDigitalBlocos.map((bloco, i) => (
+              <BlocoView bloco={bloco} key={i} />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {outrosBlocos.length > 0 ? (
+        <div className="space-y-4">
+          {outrosBlocos.map((bloco, i) => (
+            <BlocoView bloco={bloco} key={i} />
+          ))}
+        </div>
+      ) : null}
+
+      {temPessoas || temLacunas ? (
+        <div className={temPessoas && temLacunas ? "grid gap-4 lg:grid-cols-2" : ""}>
+          {temPessoas ? (
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-text-primary">Pessoas relacionadas</h3>
+              {pessoaBlocos.map((bloco, i) => (
+                <BlocoView bloco={bloco} key={i} />
+              ))}
+            </div>
+          ) : null}
+          {temLacunas ? (
+            <div className="rounded-xl border border-border bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-text-primary">O que ainda precisa ser confirmado</p>
+              <ul className="mt-2 space-y-2">
+                {answer.lacunas.map((l, i) => (
+                  <li key={i} className="flex flex-wrap items-start gap-2 text-sm text-text-secondary">
+                    <Badge variant="neutral">{translateLacunaTipo(l.tipo)}</Badge>
+                    <span>{l.descricao}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -194,28 +290,6 @@ export function AnswerView({ mensagemId, answer, geradoEm, onContinuar }: Answer
         </div>
       ) : null}
 
-      {answer.observacoes.length > 0 ? (
-        <div className="rounded-xl border border-border bg-slate-50 p-4">
-          <p className="text-sm font-semibold text-text-primary">Observações</p>
-          <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-text-secondary">
-            {answer.observacoes.map((o, i) => (
-              <li key={i}>{o}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {answer.proximasAcoes.length > 0 ? (
-        <div className="rounded-xl border border-border bg-slate-50 p-4">
-          <p className="text-sm font-semibold text-text-primary">Próximas ações sugeridas</p>
-          <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-text-secondary">
-            {answer.proximasAcoes.map((a, i) => (
-              <li key={i}>{a}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
       {answer.fontes.length > 0 ? (
         <div className="rounded-xl border border-border bg-white">
           <button
@@ -224,7 +298,7 @@ export function AnswerView({ mensagemId, answer, geradoEm, onContinuar }: Answer
             className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-expanded={fontesAbertas}
           >
-            Ver as fontes consultadas ({answer.fontes.length})
+            Ver fontes utilizadas ({answer.fontes.length})
             {fontesAbertas ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
           {fontesAbertas ? (
@@ -249,9 +323,8 @@ export function AnswerView({ mensagemId, answer, geradoEm, onContinuar }: Answer
       ) : null}
 
       <footer className="space-y-1 border-t border-border pt-3 text-xs text-text-secondary">
-        <p>Os dados representam o momento da consulta e podem ter mudado desde então.</p>
-        <p>Informações sensíveis ou de natureza formal devem ser validadas antes de qualquer uso oficial.</p>
-        {geradoEm ? <p>Relatório gerado em {formatDateTime(geradoEm)}.</p> : null}
+        <p>Relatório gerado pelo Neo.</p>
+        <p>Informações públicas disponíveis no momento da consulta.</p>
       </footer>
     </div>
   );

@@ -37,7 +37,7 @@ export function ExecutionProgress({
       >
         <span className="flex items-center gap-2 text-sm font-semibold text-text-primary">
           {emExecucao ? <Loader2 className="h-4 w-4 animate-spin text-primary" aria-hidden="true" /> : <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />}
-          {objetivo ?? "Planejando a investigação…"}
+          {objetivo ?? "Planejando a análise…"}
         </span>
         {aberto ? <ChevronUp className="h-4 w-4 text-text-secondary" /> : <ChevronDown className="h-4 w-4 text-text-secondary" />}
       </button>

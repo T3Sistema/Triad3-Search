@@ -14,7 +14,7 @@ export const NEO_ITEM: NavItem = {
   label: "Neo",
   href: "/neo",
   icon: Sparkles,
-  description: "Investigação conversacional inteligente",
+  description: "Análise conversacional inteligente",
 };
 
 export const PLAYGROUND_ITEMS: NavItem[] = [

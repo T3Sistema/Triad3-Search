@@ -231,7 +231,7 @@ export function ConversationSidebar({
             </ul>
           ) : (
             <p className="p-4 text-center text-sm text-text-secondary">
-              {busca ? "Nenhuma conversa encontrada." : "Nenhuma conversa ainda. Comece uma nova investigação."}
+              {busca ? "Nenhuma conversa encontrada." : "Nenhuma conversa ainda. Comece uma nova análise."}
             </p>
           )}
         </div>

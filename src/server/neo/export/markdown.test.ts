@@ -26,9 +26,9 @@ describe("renderNeoAnswerAsMarkdown", () => {
         fontes: [{ id: "f1", titulo: "Fonte A", url: "https://a.com", dominio: "a.com", dataAcesso: "2026-01-01" }],
       }),
     );
-    expect(md).toContain("## O que ainda merece apuração");
+    expect(md).toContain("## O que ainda precisa ser confirmado");
     expect(md).toContain("Telefone");
-    expect(md).toContain("## Fontes");
+    expect(md).toContain("## Fontes utilizadas");
     expect(md).toContain("https://a.com");
   });
 

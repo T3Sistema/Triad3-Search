@@ -269,7 +269,7 @@ function NeoAnswerDocument({ answer, meta }: { answer: NeoAnswer; meta: NeoAnswe
         <Text style={styles.metaLine}>Pergunta original: {meta.perguntaOriginal}</Text>
         <Text style={styles.metaLine}>Gerado em: {meta.geradoEm}</Text>
         <Text style={styles.metaLine}>Usuário responsável: {meta.usuarioNome}</Text>
-        <Text style={styles.metaLine}>Fontes consultadas: {answer.fontes.length}</Text>
+        <Text style={styles.metaLine}>Fontes utilizadas: {answer.fontes.length}</Text>
 
         {answer.indicadoresPrincipais.length > 0 ? (
           <View style={styles.section}>
@@ -287,7 +287,7 @@ function NeoAnswerDocument({ answer, meta }: { answer: NeoAnswer; meta: NeoAnswe
 
         {answer.achados.length > 0 ? (
           <View style={styles.section}>
-            <SectionTitle>O que a investigação encontrou</SectionTitle>
+            <SectionTitle>Principais descobertas</SectionTitle>
             {answer.achados.map((a, i) => (
               <View style={styles.achadoRow} key={i} wrap={false}>
                 <Text style={styles.achadoConclusao}>
@@ -312,7 +312,7 @@ function NeoAnswerDocument({ answer, meta }: { answer: NeoAnswer; meta: NeoAnswe
 
         {answer.lacunas.length > 0 ? (
           <View style={styles.section}>
-            <SectionTitle>O que ainda merece apuração</SectionTitle>
+            <SectionTitle>O que ainda precisa ser confirmado</SectionTitle>
             {answer.lacunas.map((l, i) => (
               <Bullet key={i}>
                 {translateLacunaTipo(l.tipo)}: {l.descricao}
@@ -339,18 +339,9 @@ function NeoAnswerDocument({ answer, meta }: { answer: NeoAnswer; meta: NeoAnswe
           </View>
         ) : null}
 
-        {answer.observacoes.length > 0 ? (
-          <View style={styles.section}>
-            <SectionTitle>Observações</SectionTitle>
-            {answer.observacoes.map((o, i) => (
-              <Bullet key={i}>{o}</Bullet>
-            ))}
-          </View>
-        ) : null}
-
         {answer.fontes.length > 0 ? (
           <View style={styles.section}>
-            <SectionTitle>Fontes consultadas</SectionTitle>
+            <SectionTitle>Fontes utilizadas</SectionTitle>
             {answer.fontes.map((f, i) => (
               <Bullet key={i}>
                 <Link src={f.url}>{f.titulo ?? f.url}</Link>
@@ -360,8 +351,8 @@ function NeoAnswerDocument({ answer, meta }: { answer: NeoAnswer; meta: NeoAnswe
         ) : null}
 
         <View style={styles.section}>
-          <Text style={styles.disclaimer}>Os dados representam o momento da consulta e podem ter mudado desde então.</Text>
-          <Text style={styles.disclaimer}>Informações sensíveis ou de natureza formal devem ser validadas antes de qualquer uso oficial.</Text>
+          <Text style={styles.disclaimer}>Relatório gerado pelo Neo.</Text>
+          <Text style={styles.disclaimer}>Informações públicas disponíveis no momento da consulta.</Text>
         </View>
 
         <Text

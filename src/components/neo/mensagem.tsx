@@ -19,15 +19,18 @@ export function MensagemUsuario({ conteudo }: { conteudo: string }) {
 
 export interface MensagemAssistenteAcoes {
   onAtualizar: () => void;
-  /** Re-sends the original question as a brand-new investigation. */
+  /** Re-sends the original question as a brand-new analysis. */
   onTentarNovamente?: () => void;
-  /** Starts a new investigation seeded from this one's completed steps and sources. */
+  /** Starts a new analysis seeded from this one's completed steps and sources. */
   onContinuar?: () => void;
+  /** Prefills the composer with the original question, letting the user edit it before resending. */
+  onAjustarSolicitacao?: () => void;
 }
 
 export function MensagemAssistente({ mensagem, ...acoes }: { mensagem: NeoMensagem } & MensagemAssistenteAcoes) {
   if (mensagem.respostaEstruturada) {
     const answer = normalizeNeoAnswer(mensagem.respostaEstruturada);
+    const naoConcluido = answer.status === "nao_concluido";
     return (
       <div className="space-y-2">
         <div className="rounded-2xl rounded-tl-sm border border-border bg-white p-4 shadow-sm sm:p-5">
@@ -35,10 +38,18 @@ export function MensagemAssistente({ mensagem, ...acoes }: { mensagem: NeoMensag
             mensagemId={mensagem.id}
             answer={answer}
             geradoEm={mensagem.criadoEm}
+            execucaoId={mensagem.execucaoId}
             onContinuar={mensagem.status === "parcial" ? acoes.onContinuar : undefined}
+            onTentarNovamente={naoConcluido ? acoes.onTentarNovamente : undefined}
+            onAjustarSolicitacao={naoConcluido ? acoes.onAjustarSolicitacao : undefined}
           />
         </div>
-        {mensagem.status === "parcial" ? <MensagemAcoes mensagem={mensagem} {...acoes} mostrarTentarNovamente mostrarEtapas /> : null}
+        {mensagem.status === "parcial" && !naoConcluido ? <MensagemAcoes mensagem={mensagem} {...acoes} mostrarTentarNovamente mostrarEtapas /> : null}
+        {mensagem.status === "parcial" && naoConcluido && mensagem.execucaoId ? (
+          <div className="w-full sm:w-auto">
+            <EtapasConcluidasList execucaoId={mensagem.execucaoId} />
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -46,7 +57,7 @@ export function MensagemAssistente({ mensagem, ...acoes }: { mensagem: NeoMensag
   if (mensagem.status === "em_execucao" || mensagem.status === "pendente") {
     return (
       <div className="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-border bg-white p-4 text-sm text-text-secondary shadow-sm">
-        <span>Esta investigação estava em andamento. Atualize para ver o progresso mais recente.</span>
+        <span>Esta análise estava em andamento. Atualize para ver o progresso mais recente.</span>
         <Button variant="ghost" size="sm" onClick={acoes.onAtualizar}>
           <RefreshCw className="h-4 w-4" /> Atualizar
         </Button>
@@ -68,7 +79,7 @@ export function MensagemAssistente({ mensagem, ...acoes }: { mensagem: NeoMensag
   return (
     <div className="space-y-2">
       <div className="rounded-2xl rounded-tl-sm border border-error/30 bg-error-bg p-4 text-sm text-text-primary shadow-sm">
-        {mensagem.conteudo ?? "Não foi possível concluir esta investigação."}
+        {mensagem.conteudo ?? "Não foi possível concluir esta análise."}
       </div>
       <MensagemAcoes mensagem={mensagem} {...acoes} mostrarTentarNovamente mostrarEtapas />
     </div>

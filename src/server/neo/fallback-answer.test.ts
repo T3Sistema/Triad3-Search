@@ -18,7 +18,7 @@ describe("summarizeToolResult", () => {
 
 describe("hasFallbackEvidence", () => {
   it("is true when at least one step succeeded", () => {
-    expect(hasFallbackEvidence([{ nomePublico: "x", ok: true }], [])).toBe(true);
+    expect(hasFallbackEvidence([{ ferramenta: "pesquisar_web", nomePublico: "x", ok: true }], [])).toBe(true);
   });
 
   it("is true when at least one source was collected, even with zero successful steps", () => {
@@ -26,57 +26,142 @@ describe("hasFallbackEvidence", () => {
   });
 
   it("is false with nothing usable", () => {
-    expect(hasFallbackEvidence([{ nomePublico: "x", ok: false, erroPublico: "falhou" }], [])).toBe(false);
+    expect(hasFallbackEvidence([{ ferramenta: "pesquisar_web", nomePublico: "x", ok: false, erroPublico: "falhou" }], [])).toBe(false);
   });
 });
 
-describe("buildEvidenceFallbackAnswer", () => {
-  it("reproduces the incident: 9 completed searches, 0 sources persisted separately from the tool results", () => {
+describe("buildEvidenceFallbackAnswer — sem fatos concretos (NÃO CONCLUÍDO)", () => {
+  it("reproduces the incident's shape (9 search calls, 0 extractions) — never turns step names or result counts into achados", () => {
     const etapas = Array.from({ length: 9 }, (_, i) => ({
-      nomePublico: "Pesquisando na web",
+      ferramenta: "pesquisar_web",
+      nomePublico: "Pesquisando fontes",
       ok: true,
       resumo: { resultados: [{ url: `https://site${i}.com` }] },
     }));
-    const answer = buildEvidenceFallbackAnswer({
-      motivo: "A execução foi interrompida antes da preparação do relatório.",
-      etapas,
-      fontes: [],
-    });
-    expect(answer.status).toBe("parcial");
-    expect(answer.respostaDireta).toContain("9 etapa(s)");
-    expect(answer.achados.length).toBe(9);
-    expect(answer.matrizEvidencias.length).toBe(9);
+    const answer = buildEvidenceFallbackAnswer({ motivo: "A execução foi interrompida.", etapas, fontes: [] });
+    expect(answer.status).toBe("nao_concluido");
+    expect(answer.achados).toEqual([]);
+    expect(answer.matrizEvidencias).toEqual([]);
+    expect(answer.indicadoresPrincipais).toEqual([]);
+    expect(JSON.stringify(answer)).not.toContain("Pesquisando fontes");
+    expect(JSON.stringify(answer)).not.toContain("resultado(s) encontrado(s)");
   });
 
-  it("never fabricates a source id — only ever cites URLs actually passed in", () => {
+  it("never fabricates a report when only a plain search call succeeded, even with sources collected", () => {
+    const answer = buildEvidenceFallbackAnswer({
+      motivo: "x",
+      etapas: [{ ferramenta: "pesquisar_web", nomePublico: "Pesquisando fontes", ok: true, resumo: { resultados: [{ url: "https://a.com" }] } }],
+      fontes: [{ url: "https://a.com", titulo: "Página irrelevante" }],
+    });
+    expect(answer.status).toBe("nao_concluido");
+    expect(answer.fontes).toEqual([]);
+  });
+
+  it("lists unresolved tracked objectives as lacunas, never mentioning a tool or step", () => {
     const answer = buildEvidenceFallbackAnswer({
       motivo: "x",
       etapas: [],
-      fontes: [{ url: "https://real.example" }],
+      fontes: [],
+      objetivos: [
+        { descricao: "CNPJ", status: "nao_encontrado" },
+        { descricao: "Instagram oficial", status: "encontrado" },
+      ],
     });
-    expect(answer.fontes).toEqual([expect.objectContaining({ url: "https://real.example", id: "f1" })]);
+    expect(answer.lacunas).toEqual([{ tipo: "nao_encontrado", descricao: "CNPJ" }]);
   });
 
-  it("lists failed steps under lacunas instead of silently dropping them", () => {
+  it("offers Tentar novamente / Ajustar solicitação semantics via nao_concluido status, never a fabricated matrix", () => {
+    const answer = buildEvidenceFallbackAnswer({ motivo: "x", etapas: [], fontes: [] });
+    expect(answer.status).toBe("nao_concluido");
+    expect(answer.blocos).toEqual([]);
+    expect(answer.proximasAcoes).toEqual([]);
+  });
+});
+
+describe("buildEvidenceFallbackAnswer — com valores extraídos (PARCIAL)", () => {
+  it("builds concrete achados/fatos/matrix only from a successful extrair_dados result", () => {
     const answer = buildEvidenceFallbackAnswer({
       motivo: "x",
-      etapas: [{ nomePublico: "Capturando página", ok: false, erroPublico: "Tempo esgotado." }],
-      fontes: [],
+      etapas: [
+        { ferramenta: "pesquisar_web", nomePublico: "Pesquisando fontes", ok: true, resumo: { resultados: [{ url: "https://empresarial.example/x" }] } },
+        {
+          ferramenta: "extrair_dados",
+          nomePublico: "Extraindo informações",
+          ok: true,
+          resumo: { json: { cnpj: "12.345.678/0001-99", responsavel: "Fulano de Tal" } },
+          argumentos: { url: "https://empresarial.example/x" },
+        },
+      ],
+      fontes: [{ url: "https://empresarial.example/x", titulo: "Fonte", dominio: "empresarial.example" }],
     });
-    expect(answer.lacunas[0].descricao).toContain("Capturando página");
-    expect(answer.lacunas[0].descricao).toContain("Tempo esgotado.");
-    expect(answer.lacunas[0].tipo).toBe("nao_encontrado");
+    expect(answer.status).toBe("parcial");
+    expect(answer.achados.map((a) => a.conclusao)).toEqual(expect.arrayContaining([expect.stringContaining("12.345.678/0001-99"), expect.stringContaining("Fulano de Tal")]));
+    expect(answer.blocos[0]).toMatchObject({ tipo: "fatos" });
+    expect(answer.matrizEvidencias.length).toBe(2);
+    expect(answer.indicadoresPrincipais.length).toBeGreaterThan(0);
+    // Every achado/matrix entry uses the extracted value, never the tool name or a result count.
+    expect(JSON.stringify(answer.achados)).not.toContain("Extraindo informações");
+    expect(JSON.stringify(answer.achados)).not.toContain("Pesquisando fontes");
   });
 
-  it("never renders as completo — always parcial, since it's a fallback by definition", () => {
-    const answer = buildEvidenceFallbackAnswer({ motivo: "x", etapas: [{ nomePublico: "a", ok: true }], fontes: [] });
+  it("only counts the source actually behind an extraction as a fonte utilizada — an unrelated search result never counts", () => {
+    const answer = buildEvidenceFallbackAnswer({
+      motivo: "x",
+      etapas: [
+        { ferramenta: "pesquisar_web", nomePublico: "Pesquisando fontes", ok: true, resumo: { resultados: [{ url: "https://irrelevante.example" }] } },
+        {
+          ferramenta: "extrair_dados",
+          nomePublico: "Extraindo informações",
+          ok: true,
+          resumo: { json: { cnpj: "12.345.678/0001-99" } },
+          argumentos: { url: "https://empresarial.example/x" },
+        },
+      ],
+      fontes: [
+        { url: "https://irrelevante.example", titulo: "Página sem relação" },
+        { url: "https://empresarial.example/x", titulo: "Fonte cadastral" },
+      ],
+    });
+    expect(answer.fontes).toHaveLength(1);
+    expect(answer.fontes[0].url).toBe("https://empresarial.example/x");
+  });
+
+  it("never claims completo — a fallback report is always parcial when it has concrete facts", () => {
+    const answer = buildEvidenceFallbackAnswer({
+      motivo: "x",
+      etapas: [{ ferramenta: "extrair_dados", nomePublico: "Extraindo informações", ok: true, resumo: { json: { campo: "valor" } } }],
+      fontes: [],
+    });
     expect(answer.status).toBe("parcial");
   });
 
-  it("suggests continuing only when there is something to continue from", () => {
-    const semEvidencia = buildEvidenceFallbackAnswer({ motivo: "x", etapas: [], fontes: [] });
-    expect(semEvidencia.proximasAcoes).toEqual([]);
-    const comEvidencia = buildEvidenceFallbackAnswer({ motivo: "x", etapas: [{ nomePublico: "a", ok: true }], fontes: [] });
-    expect(comEvidencia.proximasAcoes.length).toBeGreaterThan(0);
+  it("suggests continuing only when a tracked objective is still unresolved", () => {
+    const semLacuna = buildEvidenceFallbackAnswer({
+      motivo: "x",
+      etapas: [{ ferramenta: "extrair_dados", nomePublico: "Extraindo informações", ok: true, resumo: { json: { campo: "valor" } } }],
+      fontes: [],
+      objetivos: [{ descricao: "campo", status: "encontrado" }],
+    });
+    expect(semLacuna.proximasAcoes).toEqual([]);
+
+    const comLacuna = buildEvidenceFallbackAnswer({
+      motivo: "x",
+      etapas: [{ ferramenta: "extrair_dados", nomePublico: "Extraindo informações", ok: true, resumo: { json: { campo: "valor" } } }],
+      fontes: [],
+      objetivos: [
+        { descricao: "campo", status: "encontrado" },
+        { descricao: "outro campo", status: "nao_encontrado" },
+      ],
+    });
+    expect(comLacuna.proximasAcoes.length).toBeGreaterThan(0);
+  });
+
+  it("never lets a banned term through, even if the motivo string contains one", () => {
+    const answer = buildEvidenceFallbackAnswer({
+      motivo: "A investigação foi interrompida.",
+      etapas: [],
+      fontes: [],
+    });
+    expect(JSON.stringify(answer).toLowerCase()).not.toContain("investiga");
   });
 });

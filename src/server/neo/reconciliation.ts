@@ -36,10 +36,12 @@ function etapasParaEvidencia(etapas: Awaited<ReturnType<typeof listarEtapas>>): 
   return etapas
     .filter((e) => e.tipo === "ferramenta")
     .map((e) => ({
+      ferramenta: e.ferramentaInterna ?? "",
       nomePublico: e.nomePublico,
       ok: e.status === "concluida" || e.status === "parcial",
       resumo: e.resultadoResumido,
       erroPublico: e.erroPublico,
+      argumentos: (e.argumentosSanitizados as Record<string, unknown> | null) ?? null,
     }));
 }
 
@@ -116,7 +118,7 @@ async function syncMensagemComExecucao(execucao: NeoExecucaoRow): Promise<void> 
     const etapas = await listarEtapas(execucao.id);
     const fontes = await listarFontes(execucao.id).catch(() => []);
     const answer = buildEvidenceFallbackAnswer({
-      motivo: execucao.erroPublico ?? "A investigação foi concluída, mas o relatório final não pôde ser recuperado.",
+      motivo: execucao.erroPublico ?? "A análise foi concluída, mas o relatório final não pôde ser recuperado.",
       etapas: etapasParaEvidencia(etapas),
       fontes,
     });
@@ -127,7 +129,7 @@ async function syncMensagemComExecucao(execucao: NeoExecucaoRow): Promise<void> 
   if (execucao.status === "falhou") {
     await atualizarMensagem(mensagem.id, {
       status: "falhou",
-      conteudo: execucao.erroPublico ?? "Não foi possível concluir esta investigação.",
+      conteudo: execucao.erroPublico ?? "Não foi possível concluir esta análise.",
     }).catch(() => {});
     return;
   }

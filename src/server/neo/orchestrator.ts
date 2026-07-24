@@ -17,7 +17,7 @@ import { registerNeoExecution, requestNeoExecutionCancellation, unregisterNeoExe
 import { reconcileConversationExecution } from "@/server/neo/reconciliation";
 import { logNeoInfo, logNeoWarn } from "@/server/neo/observability";
 import { neoError, type NeoError } from "@/server/neo/errors";
-import type { NeoPlan } from "@/server/neo/schemas";
+import type { NeoObjetivo, NeoPlan } from "@/server/neo/schemas";
 import { refreshConversationSummary } from "@/server/neo/memory";
 import type { NormalizedFonte } from "@/server/neo/tool-normalizers";
 
@@ -72,7 +72,7 @@ export async function startNeoExecution(input: StartExecutionInput): Promise<Sta
     return { ok: false, error: neoError("rate_limit", "Limite temporário atingido. Tente novamente em alguns instantes.") };
   }
   if (execucaoAtivaConversa) {
-    return { ok: false, error: neoError("rate_limit", "Já existe uma investigação em andamento nesta conversa.") };
+    return { ok: false, error: neoError("rate_limit", "Já existe uma análise em andamento nesta conversa.") };
   }
 
   const mensagemUsuario = await inserirMensagem({
@@ -210,6 +210,9 @@ async function buildContinuationSeed(usuarioId: string, conversaId: string, cont
     fontes: [],
     tokensEntrada: 0,
     tokensSaida: 0,
+    // Left empty on purpose — runExecutor seeds it from the freshly re-planned
+    // investigation's own camposSolicitados/dadosNecessarios once this seed is used.
+    objetivos: [],
   };
 
   for (const etapa of etapas) {
@@ -312,6 +315,7 @@ export async function runNeoExecution(params: {
         plan,
         evidence: [],
         fontesColetadas: [],
+        objetivos: [],
         perguntaBloqueante: plan.perguntaNecessaria,
         camposSolicitados: plan.camposSolicitados,
         tokensEntradaAcumulado: 0,
@@ -344,7 +348,7 @@ export async function runNeoExecution(params: {
       outcome: outcome.outcome,
     });
   } catch {
-    const message = signal.aborted ? "A execução foi interrompida." : "Não foi possível concluir a investigação.";
+    const message = signal.aborted ? "A execução foi interrompida." : "Não foi possível concluir a análise.";
     await failExecution(execucaoId, assistantMessage?.id, message);
     logNeoWarn("execucao.falhou", { execucaoId, motivoFinalizacao: "excecao_nao_tratada" });
     emitter.emit({ tipo: "execucao.falhou", mensagem: message });
@@ -412,6 +416,7 @@ async function handleExecutorOutcome(params: HandleOutcomeParams): Promise<void>
         plan,
         evidence: state.evidence,
         fontesColetadas: state.fontes,
+        objetivos: state.objetivos,
         limiteAtingidoMotivo: "A execução foi interrompida pelo usuário antes de concluir.",
         camposSolicitados: plan.camposSolicitados,
         tokensEntradaAcumulado: state.tokensEntrada,
@@ -451,6 +456,7 @@ async function handleExecutorOutcome(params: HandleOutcomeParams): Promise<void>
     plan,
     evidence: state.evidence,
     fontesColetadas: state.fontes,
+    objetivos: state.objetivos,
     limiteAtingidoMotivo,
     camposSolicitados: plan.camposSolicitados,
     tokensEntradaAcumulado: state.tokensEntrada,
@@ -470,6 +476,7 @@ interface FinishWithAnswerParams {
   plan: NeoPlan | null;
   evidence: EvidenceEntry[];
   fontesColetadas: NormalizedFonte[];
+  objetivos: NeoObjetivo[];
   limiteAtingidoMotivo?: string;
   perguntaBloqueante?: string;
   camposSolicitados: string[];
@@ -503,6 +510,7 @@ async function finishWithAnswer(params: FinishWithAnswerParams): Promise<void> {
           plan: params.plan,
           evidence: params.evidence,
           fontesColetadas: params.fontesColetadas,
+          objetivos: params.objetivos,
           limiteAtingidoMotivo: params.limiteAtingidoMotivo,
           perguntaBloqueante: params.perguntaBloqueante ?? null,
         },
@@ -516,9 +524,10 @@ async function finishWithAnswer(params: FinishWithAnswerParams): Promise<void> {
         // Structured Output — fall back to the deterministic, evidence-based report
         // instead of the generic text-only fallback, so completed work is never lost.
         answer = buildEvidenceFallbackAnswer({
-          motivo: params.limiteAtingidoMotivo ?? "Não foi possível montar o relatório final da investigação.",
+          motivo: params.limiteAtingidoMotivo ?? "Não foi possível montar o relatório final da análise.",
           etapas: evidenceLike,
           fontes: params.fontesColetadas,
+          objetivos: params.objetivos,
         });
         fontesParaRegistrar = answer.fontes;
         relatorio = "fallback";
@@ -537,6 +546,7 @@ async function finishWithAnswer(params: FinishWithAnswerParams): Promise<void> {
       motivo: params.limiteAtingidoMotivo ?? "A execução foi interrompida antes da preparação do relatório.",
       etapas: evidenceLike,
       fontes: params.fontesColetadas,
+      objetivos: params.objetivos,
     });
     fontesParaRegistrar = answer.fontes;
     relatorio = "fallback";
@@ -558,7 +568,10 @@ async function finishWithAnswer(params: FinishWithAnswerParams): Promise<void> {
 
   const camposAusentes = answer.lacunas.map((l) => l.descricao);
   const camposEncontrados = params.camposSolicitados.filter((campo) => !camposAusentes.includes(campo));
-  const execucaoStatus = answer.status === "parcial" ? "parcial" : "concluida";
+  // "nao_concluido" is a report-content distinction (drives the compact frontend state) —
+  // at the coarser execução/mensagem DB level it's still bucketed with "parcial".
+  const relatorioIncompleto = answer.status === "parcial" || answer.status === "nao_concluido";
+  const execucaoStatus = relatorioIncompleto ? "parcial" : "concluida";
 
   await atualizarExecucao(params.execucaoId, {
     status: execucaoStatus,
@@ -571,7 +584,7 @@ async function finishWithAnswer(params: FinishWithAnswerParams): Promise<void> {
 
   if (params.mensagemId) {
     await atualizarMensagem(params.mensagemId, {
-      status: answer.status === "parcial" ? "parcial" : "concluida",
+      status: relatorioIncompleto ? "parcial" : "concluida",
       conteudo: answer.respostaDireta,
       respostaEstruturada: answer,
     });
@@ -706,7 +719,7 @@ export async function resumeNeoExecutionAfterConfirmation(params: {
       outcome: outcome.outcome,
     });
   } catch {
-    const message = signal.aborted ? "A execução foi interrompida." : "Não foi possível continuar a investigação.";
+    const message = signal.aborted ? "A execução foi interrompida." : "Não foi possível continuar a análise.";
     await failExecution(execucaoId, undefined, message);
     emitter.emit({ tipo: "execucao.falhou", mensagem: message });
   } finally {

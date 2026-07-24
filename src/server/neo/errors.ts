@@ -31,9 +31,9 @@ const NEO_PT_BR_MESSAGES: Record<NeoErrorType, string> = {
   not_found: "Recurso não encontrado.",
   rate_limit: "Limite temporário atingido. Tente novamente em alguns instantes.",
   timeout: "Uma fonte demorou mais que o esperado. Tente novamente.",
-  provider_error: "Não foi possível iniciar a investigação. Tente novamente em instantes.",
+  provider_error: "Não foi possível iniciar a análise. Tente novamente em instantes.",
   cancelled: "A execução foi interrompida.",
-  limit_reached: "O limite desta investigação foi atingido. O relatório foi concluído parcialmente.",
+  limit_reached: "O limite desta análise foi atingido. O relatório foi concluído parcialmente.",
   unknown: "Ocorreu um erro inesperado ao processar a solicitação.",
 };
 

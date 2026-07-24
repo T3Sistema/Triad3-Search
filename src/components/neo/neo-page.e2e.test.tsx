@@ -42,7 +42,7 @@ function renderNeoPage(conversaId = "c1") {
 const respostaFinal = baseNeoAnswer({
   status: "completo",
   titulo: "Perfil da Empresa X",
-  respostaDireta: "Resumo da investigação.",
+  respostaDireta: "Resumo da análise.",
   blocos: [
     { tipo: "fatos", titulo: "Fatos", itens: [{ rotulo: "Site", valor: "empresa.com", tipo: null, nivelEvidencia: "confirmado", dataObservacao: "2026-01-01", fontesIds: ["f1"] }] },
   ],
@@ -88,7 +88,7 @@ describe("Neo — fluxo completo mockado (planejamento, etapas, relatório)", ()
   it("shows the empty conversation state, then streams plan → steps → structured report as the user sends a message", async () => {
     renderNeoPage();
 
-    await screen.findByText("Envie uma mensagem para começar esta investigação.");
+    await screen.findByText("Envie uma mensagem para começar esta análise.");
 
     const textarea = screen.getByRole("textbox", { name: "Mensagem para o Neo" });
     fireEvent.change(textarea, { target: { value: "Reúna um panorama da Empresa X" } });
@@ -106,7 +106,7 @@ describe("Neo — fluxo completo mockado (planejamento, etapas, relatório)", ()
     expect(screen.queryByText(/"tipo":"fatos"/)).not.toBeInTheDocument();
 
     // Sources drawer.
-    const fontesButton = screen.getByRole("button", { name: /Ver as fontes consultadas/ });
+    const fontesButton = screen.getByRole("button", { name: /Ver fontes utilizadas/ });
     fireEvent.click(fontesButton);
     expect(within(fontesButton.closest("div")!.parentElement!).getByText("Site oficial")).toBeInTheDocument();
   });
@@ -261,7 +261,7 @@ describe("Neo — recuperação de uma conversa com execução interrompida (inc
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/executar"), expect.objectContaining({ method: "POST" })));
   });
 
-  it("Continuar investigação posts continuarExecucaoId so the new run seeds from the parcial execution instead of starting from zero", async () => {
+  it("Continuar análise posts continuarExecucaoId so the new run seeds from the parcial execution instead of starting from zero", async () => {
     fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
@@ -304,7 +304,7 @@ describe("Neo — recuperação de uma conversa com execução interrompida (inc
       return jsonResponse(200, { data: [] });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Continuar investigação/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Continuar análise/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/executar"), expect.objectContaining({ method: "POST" })));
   });
 
@@ -342,7 +342,7 @@ describe("Neo — recuperação de uma conversa com execução interrompida (inc
     vi.stubGlobal("fetch", fetchMock);
 
     renderNeoPage();
-    await screen.findByText("Esta investigação estava em andamento. Atualize para ver o progresso mais recente.");
+    await screen.findByText("Esta análise estava em andamento. Atualize para ver o progresso mais recente.");
 
     reconciled = true;
     fireEvent.click(screen.getByRole("button", { name: "Atualizar" }));

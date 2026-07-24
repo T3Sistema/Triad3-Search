@@ -114,7 +114,7 @@ export function renderNeoAnswerAsMarkdown(answer: NeoAnswer): string {
 
   if (answer.achados.length > 0) {
     parts.push(
-      `## O que a investigação encontrou\n\n${answer.achados
+      `## Principais descobertas\n\n${answer.achados
         .map((a, i) => `${i + 1}. **${a.conclusao}** _(${translateNivelEvidencia(a.nivelEvidencia)})_ — ${a.explicacao}`)
         .join("\n")}`,
     );
@@ -131,7 +131,7 @@ export function renderNeoAnswerAsMarkdown(answer: NeoAnswer): string {
 
   if (answer.lacunas.length > 0) {
     parts.push(
-      `## O que ainda merece apuração\n\n${answer.lacunas.map((l) => `- **${translateLacunaTipo(l.tipo)}:** ${l.descricao}`).join("\n")}`,
+      `## O que ainda precisa ser confirmado\n\n${answer.lacunas.map((l) => `- **${translateLacunaTipo(l.tipo)}:** ${l.descricao}`).join("\n")}`,
     );
   }
 
@@ -144,13 +144,13 @@ export function renderNeoAnswerAsMarkdown(answer: NeoAnswer): string {
     parts.push(`## Como cada conclusão foi sustentada\n\n${[header, divider, ...rows].join("\n")}`);
   }
 
-  if (answer.observacoes.length > 0) {
-    parts.push(`## Observações\n\n${answer.observacoes.map((o) => `- ${o}`).join("\n")}`);
-  }
   if (answer.fontes.length > 0) {
     parts.push(
-      `## Fontes\n\n${answer.fontes.map((f, i) => `${i + 1}. [${f.titulo ?? f.url}](${f.url})${f.dataAcesso ? ` — consultado em ${f.dataAcesso}` : ""}`).join("\n")}`,
+      `## Fontes utilizadas\n\n${answer.fontes.map((f, i) => `${i + 1}. [${f.titulo ?? f.url}](${f.url})${f.dataAcesso ? ` — consultado em ${f.dataAcesso}` : ""}`).join("\n")}`,
     );
   }
+
+  parts.push("Relatório gerado pelo Neo.\nInformações públicas disponíveis no momento da consulta.");
+
   return parts.join("\n\n") + "\n";
 }

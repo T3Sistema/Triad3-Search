@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * NeoAnswer — the versioned, structured shape of every Neo investigation
+ * NeoAnswer — the versioned, structured shape of every Neo analysis
  * report. Shared between server (Structured Outputs schema + post-validation
  * in src/server/neo/synthesizer.ts) and client (rendering in
  * src/components/neo/). No secrets, no vendor names, no branding — safe for
@@ -21,7 +21,7 @@ import { z } from "zod";
 
 export const NEO_ANSWER_VERSION = 2 as const;
 
-export const NEO_ANSWER_STATUS = ["completo", "parcial", "precisa_de_informacao"] as const;
+export const NEO_ANSWER_STATUS = ["completo", "parcial", "precisa_de_informacao", "nao_concluido"] as const;
 export type NeoAnswerStatus = (typeof NEO_ANSWER_STATUS)[number];
 
 export const NEO_NIVEL_EVIDENCIA = [
@@ -47,7 +47,7 @@ export const NEO_LACUNA_TIPOS = [
   "nao_confirmado",
   "contraditorio",
   "pode_ter_mudado",
-  "investigacao_complementar",
+  "consulta_complementar",
 ] as const;
 export type NeoLacunaTipo = (typeof NEO_LACUNA_TIPOS)[number];
 
@@ -250,7 +250,7 @@ export const neoOrganizacaoRelacionadaSchema = z.object({
   fontesIds: z.array(z.string()),
 });
 
-/** Pessoa relacionada à investigação — nunca rotulada "dona" automaticamente; cada papel carrega seu próprio nível de evidência. */
+/** Pessoa relacionada à análise — nunca rotulada "dona" automaticamente; cada papel carrega seu próprio nível de evidência. */
 export const neoBlocoPessoaSchema = z.object({
   tipo: z.literal("pessoa"),
   nome: z.string(),
@@ -316,7 +316,7 @@ export const neoIndicadorSchema = z.object({
 });
 export type NeoIndicador = z.infer<typeof neoIndicadorSchema>;
 
-/** Um achado numerado de "O que a investigação encontrou": conclusão + explicação + evidência, nunca só um link. */
+/** Um achado numerado de "Principais descobertas": conclusão + explicação + evidência, nunca só um link. */
 export const neoAchadoSchema = z.object({
   conclusao: z.string(),
   explicacao: z.string(),
@@ -360,21 +360,26 @@ export const neoAnswerSchema = z.object({
 });
 export type NeoAnswer = z.infer<typeof neoAnswerSchema>;
 
-/** Safe, static fallback used when Structured Output validation fails twice in a row, or when nothing parseable can be recovered at all. */
+/**
+ * Safe, static fallback used only when there is truly nothing concrete to
+ * show — Structured Output validation failed twice in a row with no usable
+ * evidence, or the stored data couldn't be parsed at all. Always
+ * "nao_concluido": never fabricates cards, achados or a matrix from nothing.
+ */
 export function buildFallbackAnswer(texto: string): NeoAnswer {
   return {
     version: NEO_ANSWER_VERSION,
-    status: "parcial",
-    titulo: "Resposta do Neo",
+    status: "nao_concluido",
+    titulo: "Não foi possível confirmar os dados solicitados",
     objetivo: "",
     indicadoresPrincipais: [],
     achados: [],
     respostaDireta: texto,
-    blocos: [{ tipo: "texto", titulo: null, conteudo: texto, fontesIds: [] }],
+    blocos: [],
     lacunas: [],
     matrizEvidencias: [],
     fontes: [],
-    observacoes: ["Não foi possível montar o relatório estruturado completo desta vez."],
+    observacoes: [],
     proximasAcoes: [],
     perguntaNecessaria: null,
   };
@@ -448,4 +453,122 @@ export function normalizeNeoAnswer(raw: unknown): NeoAnswer {
   if (v1.success) return upgradeV1ToV2(v1.data);
 
   return buildFallbackAnswer("Não foi possível carregar este relatório no formato esperado.");
+}
+
+// ---------------------------------------------------------------------------
+// Fontes utilizadas — nunca confundir "resultado encontrado" com "fonte que
+// sustenta uma conclusão". Um resultado de busca só vira fonte utilizada
+// quando alguma conclusão realmente o cita via fontesIds.
+// ---------------------------------------------------------------------------
+function collectCitedFonteIds(answer: Pick<NeoAnswer, "indicadoresPrincipais" | "achados" | "blocos">): Set<string> {
+  const ids = new Set<string>();
+  const add = (fontesIds: string[]) => fontesIds.forEach((id) => ids.add(id));
+
+  answer.indicadoresPrincipais.forEach((i) => add(i.fontesIds));
+  answer.achados.forEach((a) => add(a.fontesIds));
+
+  for (const bloco of answer.blocos) {
+    switch (bloco.tipo) {
+      case "texto":
+      case "imagem":
+      case "tabela":
+      case "perfil_social":
+      case "publicacao":
+        add(bloco.fontesIds);
+        break;
+      case "fatos":
+        bloco.itens.forEach((f) => add(f.fontesIds));
+        break;
+      case "entidade":
+        add(bloco.fontesIds);
+        bloco.atributos.forEach((a) => add(a.fontesIds));
+        break;
+      case "pessoa":
+        add(bloco.fontesIds);
+        bloco.atributos.forEach((a) => add(a.fontesIds));
+        bloco.papeis.forEach((p) => add(p.fontesIds));
+        bloco.organizacoesRelacionadas.forEach((o) => add(o.fontesIds));
+        break;
+      case "metricas":
+        bloco.itens.forEach((m) => add(m.fontesIds));
+        break;
+      case "timeline":
+        bloco.itens.forEach((e) => add(e.fontesIds));
+        break;
+      case "relacoes":
+        bloco.itens.forEach((r) => add(r.fontesIds));
+        break;
+      case "alerta":
+        break;
+      default:
+        break;
+    }
+  }
+  return ids;
+}
+
+function remapBlocoFontes(bloco: NeoBloco, remap: (ids: string[]) => string[]): NeoBloco {
+  switch (bloco.tipo) {
+    case "texto":
+    case "imagem":
+    case "tabela":
+    case "perfil_social":
+    case "publicacao":
+      return { ...bloco, fontesIds: remap(bloco.fontesIds) };
+    case "fatos":
+      return { ...bloco, itens: bloco.itens.map((f) => ({ ...f, fontesIds: remap(f.fontesIds) })) };
+    case "entidade":
+      return {
+        ...bloco,
+        fontesIds: remap(bloco.fontesIds),
+        atributos: bloco.atributos.map((a) => ({ ...a, fontesIds: remap(a.fontesIds) })),
+      };
+    case "pessoa":
+      return {
+        ...bloco,
+        fontesIds: remap(bloco.fontesIds),
+        atributos: bloco.atributos.map((a) => ({ ...a, fontesIds: remap(a.fontesIds) })),
+        papeis: bloco.papeis.map((p) => ({ ...p, fontesIds: remap(p.fontesIds) })),
+        organizacoesRelacionadas: bloco.organizacoesRelacionadas.map((o) => ({ ...o, fontesIds: remap(o.fontesIds) })),
+      };
+    case "metricas":
+      return { ...bloco, itens: bloco.itens.map((m) => ({ ...m, fontesIds: remap(m.fontesIds) })) };
+    case "timeline":
+      return { ...bloco, itens: bloco.itens.map((e) => ({ ...e, fontesIds: remap(e.fontesIds) })) };
+    case "relacoes":
+      return { ...bloco, itens: bloco.itens.map((r) => ({ ...r, fontesIds: remap(r.fontesIds) })) };
+    case "alerta":
+      return bloco;
+    default:
+      return bloco;
+  }
+}
+
+/**
+ * Recomputes `fontes` to contain only sources genuinely cited somewhere in
+ * the report (indicadores/achados/blocos) — a search returning 13 results
+ * must never be reported as "13 fontes utilizadas". Re-numbers ids
+ * sequentially and rewrites every fontesIds reference so citations never
+ * break. A no-op (returns the same object) when nothing needs pruning.
+ */
+export function pruneUnusedFontes(answer: NeoAnswer): NeoAnswer {
+  const citedIds = collectCitedFonteIds(answer);
+  const kept = answer.fontes.filter((f) => citedIds.has(f.id));
+  if (kept.length === answer.fontes.length) return answer;
+
+  const idMap = new Map<string, string>();
+  const renumbered = kept.map((f, i) => {
+    const novoId = `f${i + 1}`;
+    idMap.set(f.id, novoId);
+    return { ...f, id: novoId };
+  });
+  const remap = (ids: string[]) => ids.map((id) => idMap.get(id)).filter((id): id is string => Boolean(id));
+
+  return {
+    ...answer,
+    fontes: renumbered,
+    indicadoresPrincipais: answer.indicadoresPrincipais.map((i) => ({ ...i, fontesIds: remap(i.fontesIds) })),
+    achados: answer.achados.map((a) => ({ ...a, fontesIds: remap(a.fontesIds) })),
+    blocos: answer.blocos.map((bloco) => remapBlocoFontes(bloco, remap)),
+  };
 }

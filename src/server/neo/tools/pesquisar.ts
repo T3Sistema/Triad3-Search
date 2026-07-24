@@ -15,7 +15,7 @@ registerNeoTool({
   name: "pesquisar_web",
   nomePublico: "Pesquisando fontes",
   description:
-    "Pesquisa na web por páginas, entidades, documentos, perfis e fontes relacionadas ao objetivo da investigação. Use para descobrir URLs e ampliar uma investigação, ou para encontrar fontes diferentes sobre o mesmo alvo.",
+    "Pesquisa na web por páginas, entidades, documentos, perfis e fontes relacionadas ao objetivo da investigação. Prefira consultas curtas e específicas, combinando um identificador já conhecido do alvo (domínio, nome, razão social) com o campo procurado (ex.: 'dominio.com.br CNPJ'). Nunca repita uma consulta equivalente a uma já feita apenas com palavras reorganizadas — só pesquise de novo sobre o mesmo campo se um identificador novo foi descoberto.",
   persistent: false,
   timeoutMs: 45_000,
   parameters: pesquisarParamsSchema,

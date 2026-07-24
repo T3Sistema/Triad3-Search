@@ -25,7 +25,7 @@ registerNeoTool({
   name: "capturar_pagina",
   nomePublico: "Lendo página",
   description:
-    "Lê o conteúdo de uma URL já conhecida (encontrada por uma pesquisa anterior ou informada pelo usuário). Retorna markdown, links, imagens e/ou um resumo da página. Use para analisar uma fonte específica em detalhe.",
+    "Lê o conteúdo de uma URL já conhecida (encontrada por uma pesquisa anterior ou informada pelo usuário). Retorna markdown, links, imagens e/ou um resumo da página. Use apenas quando o título/trecho da pesquisa já sugerir que a página contém o dado procurado — nunca capture uma página só porque ela tem muitos links, é uma página inicial genérica, um menu ou uma listagem sem relação clara com o objetivo pendente. Depois de capturar, use extrair_dados para obter os campos exatos em vez de reler o texto bruto.",
   persistent: false,
   timeoutMs: 45_000,
   parameters: capturarParamsSchema,
