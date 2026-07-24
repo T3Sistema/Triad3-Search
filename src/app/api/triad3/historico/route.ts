@@ -1,5 +1,5 @@
 import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
-import { jsonError, jsonOk, validationErrorResponse } from "@/lib/api-utils";
+import { jsonError, jsonOk, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { historyQuerySchema } from "@/lib/integration/schemas";
 import type { HistoryListResponse } from "@/server/integrations/web-intelligence/types";
 
@@ -7,6 +7,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const { searchParams } = new URL(request.url);
   const parsed = historyQuerySchema.safeParse({
     page: searchParams.get("page") ?? undefined,

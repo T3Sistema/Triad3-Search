@@ -14,10 +14,9 @@ integração configurada no backend deste projeto.
 
 ## Regras de segurança importantes
 
-- **Não há login nem cadastro.** Qualquer pessoa com acesso ao endereço público deste painel pode
-  disparar requisições e consumir os créditos configurados no servidor. Se isso for um problema,
-  restrinja o acesso à URL por outro meio (VPN, proxy autenticado, IP allowlist etc.) — este projeto
-  não implementa autenticação por decisão de escopo.
+- **O painel exige login.** Toda página interna e toda rota privada de `/api/triad3/*` verificam uma
+  sessão real no backend antes de responder — veja "Autenticação" abaixo para a arquitetura completa.
+  Não há cadastro público; contas são criadas apenas via `npm run usuario:criar`.
 - A chave da integração (`SGAI_API_KEY`) **nunca** é enviada ao navegador. Toda comunicação externa
   passa por `src/server/integrations/web-intelligence/client.ts` (marcado com `import "server-only"`)
   e pelas rotas internas neutras em `src/app/api/triad3/*`, que rodam apenas no servidor
@@ -27,6 +26,44 @@ integração configurada no backend deste projeto.
 - Headers/cookies customizados (configurações avançadas de captura) nunca são persistidos no
   navegador e nunca aparecem em logs do servidor — apenas `{ id, endpoint, status, durationMs }` é
   registrado por chamada.
+
+## Autenticação
+
+Autenticação própria, sem nenhum serviço de auth pronto (sem Supabase Auth, Auth.js/NextAuth, Clerk
+etc.). O banco (Postgres do Supabase) é usado só como banco — usuários, senhas e sessões são
+controlados inteiramente pelas tabelas e pelo backend deste projeto.
+
+- **Fluxo:** navegador → rotas internas `/api/triad3/sessao/entrar` e `/api/triad3/sessao/sair` →
+  banco. O frontend nunca consulta a tabela de usuários, nunca recebe `password_hash`/hash de token, e
+  nunca decide sozinho se alguém está autenticado.
+- **Tabelas** (migration versionada em `supabase/migrations/20260724000000_criar_tabelas_autenticacao.sql`):
+  `usuarios` (com `password_hash`, `tentativas_falhas`, `bloqueado_ate`), `sessoes` (guarda só o SHA-256
+  do token, nunca o token original) e `tentativas_login` (log persistente para o rate limit, já que o
+  projeto roda em ambiente serverless — memória local não sobrevive entre invocações). RLS habilitado
+  nas três, sem política para `anon`/`authenticated`: só a chave secreta server-only tem acesso.
+- **Senhas:** Argon2id via `@node-rs/argon2` (`src/server/auth/password.ts`), salt aleatório embutido no
+  hash, nunca implementado manualmente. Login roda uma verificação Argon2id "fictícia" quando o e-mail
+  não existe, para igualar o tempo de resposta e não permitir enumeração de contas.
+- **Sessão:** token de 32 bytes aleatórios (`crypto.randomBytes`), entregue só via cookie `HttpOnly`
+  (`SESSION_COOKIE_NAME`, padrão `triad3_session`) — o banco guarda apenas o SHA-256 do token. Duração
+  padrão de 8 horas, ou 30 dias com "Manter conectado". `Secure` em produção, `SameSite=Lax`.
+- **Rate limit:** bloqueio de 5 tentativas inválidas em 15 minutos, contado por hash do e-mail (tabela
+  `tentativas_login`), aplicado igualmente a e-mails existentes ou não — a resposta nunca revela se uma
+  conta existe (`src/server/auth/rate-limit.ts`).
+- **Proteção de rotas:** `src/proxy.ts` faz só uma checagem otimista (cookie presente?) para melhorar a
+  navegação — **não** é a proteção real. A proteção de verdade acontece em
+  `src/app/(app)/layout.tsx` (`exigirUsuario()`, Server Component) para as páginas, e em
+  `requireApiUser()` (`src/lib/api-utils.ts`) no topo de toda rota privada de `/api/triad3/*`.
+  `retorno=` só aceita caminhos internos (`/algo`), nunca `//`, protocolos ou URLs externas
+  (`src/lib/auth/redirect-target.ts`).
+- **Criar o primeiro usuário:** não há cadastro público.
+  ```bash
+  npm run usuario:criar
+  ```
+  Pede nome, e-mail, senha (mínimo 12 caracteres, oculta ao digitar quando o terminal permite) e
+  confirmação; nunca aceita senha por argumento de linha de comando, nunca imprime senha/hash, nunca
+  grava credenciais em arquivo. Precisa de `SUPABASE_URL`/`SUPABASE_SECRET_KEY` no ambiente (ex.:
+  `.env.local`).
 
 ## Política de neutralização e idioma (regras permanentes)
 
@@ -71,11 +108,14 @@ Request.
 
 ```bash
 npm install
-cp .env.example .env.local   # preencha SGAI_API_KEY com uma chave real
+cp .env.example .env.local   # preencha SGAI_API_KEY, SUPABASE_URL e SUPABASE_SECRET_KEY
+# rode a migration em supabase/migrations/ no seu projeto Supabase (ver seção Autenticação)
+npm run usuario:criar         # crie o primeiro usuário
 npm run dev
 ```
 
-Abra `http://localhost:3000` — a rota `/` já abre o painel (ferramenta Capturar).
+Abra `http://localhost:3000` — a raiz (`/`) exige login e leva a `/login` até você entrar; depois de
+autenticado, `/` abre o painel (ferramenta Capturar).
 
 ## Variáveis de ambiente
 
@@ -83,6 +123,9 @@ Abra `http://localhost:3000` — a rota `/` já abre o painel (ferramenta Captur
 SGAI_API_KEY=
 SGAI_BASE_URL=https://v2-api.scrapegraphai.com
 NEXT_PUBLIC_APP_NAME=Triad3 Search
+SUPABASE_URL=
+SUPABASE_SECRET_KEY=
+SESSION_COOKIE_NAME=triad3_session
 ```
 
 Os nomes dessas variáveis são mantidos como estão (compatibilidade com deploys existentes na Vercel)
@@ -93,8 +136,15 @@ Os nomes dessas variáveis são mantidos como estão (compatibilidade com deploy
   mencionar o nome da variável ao usuário) em vez de quebrar o painel.
 - `SGAI_BASE_URL`: opcional, padrão `https://v2-api.scrapegraphai.com`.
 - `NEXT_PUBLIC_APP_NAME`: opcional, usado apenas no `<title>` da página (não contém segredo).
+- `SUPABASE_URL`: obrigatória. URL do projeto Supabase usado só como Postgres — lida apenas em
+  `src/server/db/client.ts`.
+- `SUPABASE_SECRET_KEY`: obrigatória. Chave secreta server-only (ignora RLS por padrão) — nunca a
+  publishable/anon key. Lida apenas em `src/server/db/client.ts`.
+- `SESSION_COOKIE_NAME`: opcional, padrão `triad3_session`. Nome do cookie de sessão (o nome em si não
+  é sensível — o cookie é `HttpOnly`, então JS do navegador não o lê de qualquer forma).
 
-Nunca use o prefixo `NEXT_PUBLIC_` para a chave da integração — isso a exporia no navegador.
+Nunca use o prefixo `NEXT_PUBLIC_` para a chave da integração ou para a chave secreta do banco — isso
+as exporia no navegador.
 
 ## Scripts
 
@@ -107,6 +157,7 @@ npm run typecheck                # tsc --noEmit
 npm run test                      # testes unitários (Vitest), sem consumir créditos reais
 npm run check:ui-policy           # política de neutralização/idioma no código-fonte
 npm run check:ui-policy:static    # política de neutralização/idioma no bundle .next/static
+npm run usuario:criar             # cria um usuário (interativo — sem cadastro público)
 ```
 
 ### Testes ao vivo (opcionais, consomem créditos reais)
@@ -131,10 +182,17 @@ amplo. Sem essas variáveis, nenhuma chamada real é feita.
    SGAI_API_KEY=chave_real
    SGAI_BASE_URL=https://v2-api.scrapegraphai.com
    NEXT_PUBLIC_APP_NAME=Triad3 Search
+   SUPABASE_URL=url_do_projeto_supabase
+   SUPABASE_SECRET_KEY=chave_secreta_real
+   SESSION_COOKIE_NAME=triad3_session
    ```
-4. Marque a chave para os ambientes necessários (Production / Preview / Development).
-5. Faça um novo deploy.
-6. Nunca commite a chave real no Git nem a exponha como `NEXT_PUBLIC_*`.
+4. Marque as chaves para os ambientes necessários (Production / Preview / Development).
+5. Rode a migration em `supabase/migrations/` contra o banco de cada ambiente (o painel SQL do
+   Supabase ou a CLI do Supabase servem para isso) — este projeto não roda migrations automaticamente.
+6. Crie o primeiro usuário rodando `npm run usuario:criar` localmente, apontando `SUPABASE_URL`/
+   `SUPABASE_SECRET_KEY` para o banco do ambiente de destino.
+7. Faça um novo deploy.
+8. Nunca commite as chaves reais no Git nem as exponha como `NEXT_PUBLIC_*`.
 
 As rotas que consultam a integração usam `export const runtime = "nodejs"`,
 `export const dynamic = "force-dynamic"`, `cache: "no-store"` nas chamadas de saída e
@@ -146,18 +204,26 @@ necessário.
 
 ```
 src/
+  proxy.ts                        # checagem otimista de cookie (não é a proteção real)
   app/
-    page.tsx                     # "/" — Capturar (painel abre direto aqui)
-    extract/page.tsx              # Extrair
-    search/page.tsx               # Pesquisar
-    crawl/page.tsx                 # Mapear site — criar
-    crawl/[id]/page.tsx             # Mapear site — acompanhar/gerenciar
-    monitor/page.tsx                # Monitorar — criar + "meus monitores"
-    monitor/[id]/page.tsx           # Monitorar — detalhe + atividade
-    history/page.tsx
-    history/[id]/page.tsx
-    docs/page.tsx                   # "Ajuda" no menu — documentação interna do painel
+    layout.tsx                    # QueryProvider + Toaster — sem chrome (cada grupo de rota decide)
+    (public)/
+      layout.tsx                   # passthrough, sem sidebar/topbar
+      login/page.tsx                # redireciona para "/" se já autenticado; senão renderiza LoginPage
+    (app)/
+      layout.tsx                   # exigirUsuario() (proteção real) + <AppShell>
+      page.tsx                     # "/" — Capturar (painel abre direto aqui)
+      extract/page.tsx              # Extrair
+      search/page.tsx               # Pesquisar
+      crawl/page.tsx                 # Mapear site — criar
+      crawl/[id]/page.tsx             # Mapear site — acompanhar/gerenciar
+      monitor/page.tsx                # Monitorar — criar + "meus monitores"
+      monitor/[id]/page.tsx           # Monitorar — detalhe + atividade
+      history/page.tsx
+      history/[id]/page.tsx
+      docs/page.tsx                   # "Ajuda" no menu — documentação interna do painel
     api/triad3/                     # rotas internas neutras (nomes em português, sem menção a fornecedor)
+      sessao/entrar/route.ts, sessao/sair/route.ts   # login/logout — únicas rotas sem requireApiUser()
       capturar/route.ts
       extrair/route.ts
       pesquisar/route.ts
@@ -169,14 +235,22 @@ src/
       creditos/route.ts
       schema/route.ts               # gerador de schema com IA (opcional/best-effort)
   components/
-    layout/                        # Sidebar, Topbar, AppShell, créditos, status de conexão
+    layout/                        # Sidebar, Topbar, AppShell, LogoutButton, créditos, status de conexão
     playground/                    # FormatSelector, FetchConfigAccordion, SchemaEditor, RequestPreview
     viewer/                        # JsonTree, JsonCode, Markdown, HtmlSource, Links, Imagens,
                                     # Screenshot, SearchResults, Metadata, Error, Loading, Empty
-    pages/                          # componentes de página (Capturar/Extrair/Pesquisar/Mapear/Monitorar/Histórico)
+    pages/                          # componentes de página (Capturar/Extrair/Pesquisar/Mapear/Monitorar/Histórico/Login)
     ui/                             # primitivos estilo shadcn (Radix + Tailwind)
   hooks/                           # hooks TanStack Query por serviço
   server/
+    db/
+      client.ts                     # cliente admin do Supabase (só Postgres), import "server-only"
+      repositories/                 # usuarios.ts, sessoes.ts, tentativas-login.ts — uma query por função
+    auth/                          # autenticação própria — server-only
+      sessions.ts                   # criarSessao, obterSessaoAtual, exigirUsuario, revogarSessao, limparSessoesExpiradas
+      password.ts                   # Argon2id (@node-rs/argon2), verificação fictícia para timing parity
+      users.ts, rate-limit.ts        # lockout de conta + limite persistente de tentativas
+      config.ts, hash-utils.ts, request-ip.ts, argon2-params.ts
     integrations/
       web-intelligence/             # tudo relacionado ao fornecedor externo — server-only
         client.ts                   # cliente central (timeout, retry, logging seguro), import "server-only"
@@ -184,6 +258,10 @@ src/
         sanitize.ts                 # remove nome/domínio/header do fornecedor de mensagens externas
         types.ts                    # tipos "passthrough" para as respostas
   lib/
+    auth/                          # compartilhado client+server, sem segredos
+      validation.ts                  # normalizeEmail, isValidEmail, isStrongPassword
+      redirect-target.ts             # sanitizeInternalPath — bloqueia redirecionamento aberto
+      schemas.ts                     # Zod do payload de login
     integration/                    # Zod + tipos compartilhados entre client e server (sem segredos)
       formats.ts                    # formatos compartilhados (Capturar/Mapear/Monitorar) + FetchConfig
       schemas.ts                    # Zod para cada payload de requisição
@@ -191,10 +269,12 @@ src/
     ui/                             # camada de apresentação — nunca mostra enum/status cru
       status-labels.ts               # tradução de status/serviços para pt-BR
       formatting.ts                  # Intl.DateTimeFormat/NumberFormat("pt-BR")
-    api-utils.ts                    # helpers de resposta, checagem de Origin, limite de payload
+    api-utils.ts                    # helpers de resposta, checagem de Origin, limite de payload, requireApiUser()
 scripts/
   ui-policy.config.mjs              # lista de termos proibidos no frontend (extensível)
   check-ui-policy.mjs               # verificador (código-fonte e bundle estático)
+  create-user.ts                    # CLI de "npm run usuario:criar" — não importa código server-only
+supabase/migrations/                # migrations SQL versionadas (usuarios, sessoes, tentativas_login)
 .claude/rules/frontend-product-rules.md  # regras detalhadas de idioma, paleta, neutralização
 ```
 

@@ -1,4 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const requireApiUser = vi.fn();
+vi.mock("@/lib/api-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api-utils")>();
+  return { ...actual, requireApiUser: () => requireApiUser() };
+});
+
 import { POST } from "./route";
 
 function jsonResponse(status: number, body: unknown) {
@@ -16,11 +23,24 @@ function makeRequest(body: unknown, headers: Record<string, string> = {}) {
 describe("POST /api/triad3/capturar", () => {
   beforeEach(() => {
     process.env.SGAI_API_KEY = "test-key";
+    requireApiUser.mockResolvedValue({ ok: true, user: { id: "u1", nome: "Ana", email: "ana@triad3.com" } });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("denies access with a 401 when there is no valid session", async () => {
+    requireApiUser.mockResolvedValueOnce({
+      ok: false,
+      response: new Response(JSON.stringify({ error: { type: "unauthorized", message: "Sessão inválida ou expirada." } }), {
+        status: 401,
+      }),
+    });
+
+    const response = await POST(makeRequest({ url: "https://example.com", formats: [{ type: "markdown" }] }));
+    expect(response.status).toBe(401);
   });
 
   it("rejects requests from an untrusted cross-site origin", async () => {

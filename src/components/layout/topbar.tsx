@@ -7,12 +7,15 @@ import { Button } from "@/components/ui/button";
 import { ConnectionStatus } from "@/components/layout/connection-status";
 import { CreditsWidget } from "@/components/layout/credits-widget";
 import { SettingsInfoDialog } from "@/components/layout/settings-info-dialog";
+import { LogoutButton } from "@/components/layout/logout-button";
+import type { UsuarioPublico } from "@/server/auth/sessions";
 
 interface TopbarProps {
+  usuario: UsuarioPublico;
   onOpenMobileMenu: () => void;
 }
 
-export function Topbar({ onOpenMobileMenu }: TopbarProps) {
+export function Topbar({ usuario, onOpenMobileMenu }: TopbarProps) {
   const pathname = usePathname();
   const activeKey = findActiveNavKey(pathname);
   const activeItem = ALL_NAV_ITEMS.find((item) => item.key === activeKey);
@@ -36,12 +39,16 @@ export function Topbar({ onOpenMobileMenu }: TopbarProps) {
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-3">
         <div className="hidden sm:block">
           <ConnectionStatus />
         </div>
         <CreditsWidget />
+        <span className="hidden max-w-[10rem] truncate text-sm text-text-secondary md:block" title={usuario.email}>
+          {usuario.nome}
+        </span>
         <SettingsInfoDialog />
+        <LogoutButton />
       </div>
     </header>
   );

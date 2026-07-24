@@ -1,5 +1,5 @@
 import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
-import { jsonError, jsonOk, validationErrorResponse } from "@/lib/api-utils";
+import { jsonError, jsonOk, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import type { HistoryItem } from "@/server/integrations/web-intelligence/types";
 
 export const runtime = "nodejs";
@@ -8,6 +8,9 @@ export const dynamic = "force-dynamic";
 type Params = Promise<{ id: string }>;
 
 export async function GET(_request: Request, ctx: { params: Params }) {
+  const auth = await requireApiUser();
+  if (!auth.ok) return auth.response;
+
   const { id } = await ctx.params;
   if (!id) return validationErrorResponse("ID do item de histórico é obrigatório.");
 

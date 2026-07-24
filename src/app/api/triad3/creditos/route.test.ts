@@ -1,4 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const requireApiUser = vi.fn();
+vi.mock("@/lib/api-utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api-utils")>();
+  return { ...actual, requireApiUser: () => requireApiUser() };
+});
+
 import { GET } from "./route";
 
 function jsonResponse(status: number, body: unknown) {
@@ -10,6 +17,7 @@ describe("GET /api/triad3/creditos", () => {
 
   beforeEach(() => {
     process.env.SGAI_API_KEY = "test-key";
+    requireApiUser.mockResolvedValue({ ok: true, user: { id: "u1", nome: "Ana", email: "ana@triad3.com" } });
   });
 
   afterEach(() => {
