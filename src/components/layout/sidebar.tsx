@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PLAYGROUND_ITEMS, SECONDARY_ITEMS, findActiveNavKey } from "@/lib/nav";
@@ -33,11 +34,15 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between px-5 py-5">
-            <Link href="/" className="flex items-center gap-3" onClick={onClose}>
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white">
-                T3
-              </span>
-              <span className="text-base font-semibold text-text-primary">Triad3 Search</span>
+            <Link href="/" className="flex min-w-0 items-center" onClick={onClose}>
+              <Image
+                src="/branding/triad3-search-logo.png"
+                alt="Triad3 Search"
+                width={1983}
+                height={793}
+                priority
+                className="h-8 w-auto max-w-full"
+              />
             </Link>
             <button
               type="button"
@@ -97,10 +102,6 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
               ))}
             </ul>
           </nav>
-
-          <div className="border-t border-border px-4 py-3 text-xs text-text-secondary">
-            Motor de inteligência conectado
-          </div>
         </div>
       </aside>
     </>

@@ -9,6 +9,7 @@ export const forbiddenFrontendTerms = [
   "Scrape Graph AI",
   "SGAI",
   "v2-api.scrapegraphai.com",
+  "supabase.co",
 ];
 
 // Directories scanned for source-level violations (pre-build). Glob-style,

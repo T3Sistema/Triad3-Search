@@ -3,7 +3,6 @@
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { ALL_NAV_ITEMS, findActiveNavKey } from "@/lib/nav";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConnectionStatus } from "@/components/layout/connection-status";
 import { CreditsWidget } from "@/components/layout/credits-widget";
@@ -32,12 +31,7 @@ export function Topbar({ onOpenMobileMenu }: TopbarProps) {
           <Menu className="h-5 w-5" />
         </Button>
         <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <h1 className="min-w-0 truncate text-lg font-semibold text-text-primary">{activeItem?.label ?? "Triad3 Search"}</h1>
-            <Badge variant="default" className="hidden shrink-0 sm:inline-flex">
-              Motor de inteligência
-            </Badge>
-          </div>
+          <h1 className="min-w-0 truncate text-lg font-semibold text-text-primary">{activeItem?.label ?? "Triad3 Search"}</h1>
           <p className="hidden truncate text-xs text-text-secondary sm:block">{activeItem?.description}</p>
         </div>
       </div>
