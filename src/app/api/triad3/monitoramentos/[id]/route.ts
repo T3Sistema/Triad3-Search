@@ -1,8 +1,6 @@
-import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
 import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { monitorPatchRequestSchema } from "@/lib/integration/schemas";
-import { pruneFetchConfig } from "@/lib/integration/formats";
-import type { MonitorResponse } from "@/server/integrations/web-intelligence/types";
+import { atualizarMonitoramento, consultarMonitoramento, excluirMonitoramento } from "@/server/services/monitorar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +14,7 @@ export async function GET(_request: Request, ctx: { params: Params }) {
   const { id } = await ctx.params;
   if (!id) return validationErrorResponse("ID do monitor é obrigatório.");
 
-  const result = await sgaiRequest<MonitorResponse>("GET", `/monitor/${encodeURIComponent(id)}`);
+  const result = await consultarMonitoramento(id);
   if (!result.ok) return jsonError(result.error);
   return jsonOk(result.data);
 }
@@ -42,11 +40,7 @@ export async function PATCH(request: Request, ctx: { params: Params }) {
     return validationErrorResponse("Informe ao menos um campo para atualizar.");
   }
 
-  const { fetchConfig, ...rest } = parsed.data;
-  const prunedFetchConfig = pruneFetchConfig(fetchConfig);
-  const payload = { ...rest, ...(prunedFetchConfig ? { fetchConfig: prunedFetchConfig } : {}) };
-
-  const result = await sgaiRequest<MonitorResponse>("PATCH", `/monitor/${encodeURIComponent(id)}`, { body: payload });
+  const result = await atualizarMonitoramento(id, parsed.data);
   if (!result.ok) return jsonError(result.error);
   return jsonOk(result.data);
 }
@@ -61,7 +55,7 @@ export async function DELETE(request: Request, ctx: { params: Params }) {
   const { id } = await ctx.params;
   if (!id) return validationErrorResponse("ID do monitor é obrigatório.");
 
-  const result = await sgaiRequest("DELETE", `/monitor/${encodeURIComponent(id)}`);
+  const result = await excluirMonitoramento(id);
   if (!result.ok) return jsonError(result.error);
   return jsonOk(result.data ?? { ok: true });
 }

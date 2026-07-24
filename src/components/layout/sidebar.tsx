@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { PLAYGROUND_ITEMS, SECONDARY_ITEMS, findActiveNavKey } from "@/lib/nav";
+import { NEO_ITEM, PLAYGROUND_ITEMS, SECONDARY_ITEMS, findActiveNavKey } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { X } from "lucide-react";
 
@@ -55,6 +55,31 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
           </div>
 
           <nav className="flex-1 overflow-y-auto px-3 py-2">
+            <Link
+              href={NEO_ITEM.href}
+              onClick={onClose}
+              aria-current={activeKey === NEO_ITEM.key ? "page" : undefined}
+              className={cn(
+                "mb-3 flex items-center gap-3 rounded-xl border px-3 py-3 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                activeKey === NEO_ITEM.key
+                  ? "border-primary/30 bg-gradient-to-br from-primary-bg to-white text-primary shadow-sm"
+                  : "border-primary/15 bg-gradient-to-br from-primary-bg/60 to-white text-text-primary hover:border-primary/30 hover:from-primary-bg",
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-white shadow-sm",
+                )}
+                aria-hidden="true"
+              >
+                <NEO_ITEM.icon className="h-5 w-5" />
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate">{NEO_ITEM.label}</span>
+                <span className="truncate text-xs font-normal text-text-secondary">{NEO_ITEM.description}</span>
+              </span>
+            </Link>
+
             <p className="px-2 pb-2 pt-3 text-xs font-semibold uppercase tracking-wider text-text-secondary">
               Playground
             </p>

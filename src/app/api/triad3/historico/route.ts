@@ -1,7 +1,6 @@
-import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
 import { jsonError, jsonOk, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { historyQuerySchema } from "@/lib/integration/schemas";
-import type { HistoryListResponse } from "@/server/integrations/web-intelligence/types";
+import { listarHistorico } from "@/server/services/historico";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,14 +20,7 @@ export async function GET(request: Request) {
     return validationErrorResponse("Parâmetros de listagem inválidos.", parsed.error.issues);
   }
 
-  const result = await sgaiRequest<HistoryListResponse>("GET", "/history", {
-    searchParams: {
-      page: parsed.data.page,
-      limit: parsed.data.limit,
-      service: parsed.data.service,
-      status: parsed.data.status,
-    },
-  });
+  const result = await listarHistorico(parsed.data);
   if (!result.ok) return jsonError(result.error);
   return jsonOk(result.data);
 }

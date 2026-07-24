@@ -1,7 +1,6 @@
-import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
 import { jsonError, jsonOk, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { crawlPagesQuerySchema } from "@/lib/integration/schemas";
-import type { CrawlPagesResponse } from "@/server/integrations/web-intelligence/types";
+import { listarPaginasMapeamento } from "@/server/services/mapear";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,9 +23,7 @@ export async function GET(request: Request, ctx: { params: Params }) {
     return validationErrorResponse("Parâmetros de paginação inválidos.", parsed.error.issues);
   }
 
-  const result = await sgaiRequest<CrawlPagesResponse>("GET", `/crawl/${encodeURIComponent(id)}/pages`, {
-    searchParams: { limit: parsed.data.limit, cursor: parsed.data.cursor },
-  });
+  const result = await listarPaginasMapeamento(id, parsed.data);
   if (!result.ok) return jsonError(result.error);
   return jsonOk(result.data);
 }
