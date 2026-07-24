@@ -42,16 +42,18 @@ function buildSynthesisPrompt(input: SynthesizerInput, fontes: NeoFonte[]): stri
   parts.push(`Mensagem original do usuário: ${input.userMessage}`);
   if (input.plan) {
     parts.push(`Objetivo interpretado: ${input.plan.objetivoInterpretado}`);
-    parts.push(`Campos solicitados: ${input.plan.camposSolicitados.join(", ") || "não especificados"}`);
+    parts.push(
+      `Campos solicitados pelo usuário (verifique cada um e classifique como encontrado, parcialmente encontrado, não encontrado ou não confirmado — os ausentes/não confirmados vão em "lacunas"): ${input.plan.camposSolicitados.join(", ") || "não especificados"}`,
+    );
     parts.push(`Formato esperado do relatório: ${input.plan.formatoRelatorioEsperado}`);
   }
   if (input.perguntaBloqueante) {
     parts.push(
-      `Existe uma ambiguidade bloqueante que impede prosseguir com segurança. Pergunta necessária ao usuário: ${input.perguntaBloqueante}. Produza status "precisa_de_informacao", explique brevemente o motivo em resumoExecutivo, e preencha perguntaNecessaria com essa pergunta.`,
+      `Existe uma ambiguidade bloqueante que impede prosseguir com segurança. Pergunta necessária ao usuário: ${input.perguntaBloqueante}. Produza status "precisa_de_informacao", explique brevemente o motivo em respostaDireta, e preencha perguntaNecessaria com essa pergunta.`,
     );
   }
   parts.push(
-    `Fontes disponíveis (use SOMENTE estes ids em fontesIds — nunca invente um id ou URL que não esteja nesta lista):\n${JSON.stringify(fontes)}`,
+    `Fontes disponíveis (use SOMENTE estes ids em fontesIds — nunca invente um id ou URL que não esteja nesta lista; elas servem só para citar evidência, nunca para virar o conteúdo principal do relatório):\n${JSON.stringify(fontes)}`,
   );
   if (input.evidence.length > 0) {
     const resumo = input.evidence.map((e) => ({
@@ -66,11 +68,23 @@ function buildSynthesisPrompt(input: SynthesizerInput, fontes: NeoFonte[]): stri
   }
   if (input.limiteAtingidoMotivo) {
     parts.push(
-      `Um limite de execução foi atingido: ${input.limiteAtingidoMotivo}. Produza status "parcial", explicando claramente o que foi concluído e o que faltou, e sugira próximas ações para o usuário continuar em uma nova mensagem.`,
+      `Um limite de execução foi atingido: ${input.limiteAtingidoMotivo}. Produza status "parcial", explicando claramente em respostaDireta e nos achados o que foi concluído e o que faltou (em "lacunas"), e sugira próximas ações para o usuário continuar em uma nova mensagem.`,
     );
   }
   parts.push(
-    "Monte o relatório final estruturado (NeoAnswer): título, resumo executivo, blocos relevantes ao tipo de investigação (texto, fatos, entidade, métricas, imagem, tabela, timeline, relações, alerta, fontes — use somente os tipos de bloco que fizerem sentido para este caso), lista de fontes, informações ausentes, observações e próximas ações. Nunca invente dado não sustentado pelas fontes acima. Use 'Não localizado' (nível de evidência) quando não houver evidência suficiente.",
+    [
+      "Monte o relatório final estruturado (NeoAnswer v2), consolidando as descobertas em vez de listar links:",
+      "- titulo: específico da investigação (nunca repita a mensagem completa do usuário).",
+      "- objetivo: descrição curta do que foi pedido.",
+      "- indicadoresPrincipais: até três dados centrais realmente encontrados (nunca vazios, nunca inventados).",
+      "- achados: conclusões numeradas com explicação curta cada uma, sustentadas pelas fontes.",
+      "- respostaDireta: responde diretamente à mensagem do usuário em poucos parágrafos, sem exigir abrir links.",
+      "- blocos: somente os tipos que fizerem sentido para este caso (texto, fatos, entidade, pessoa, perfil_social, publicacao, métricas, imagem, tabela, timeline, relações, alerta) — nunca force um tipo de bloco pensado para empresa em uma investigação de outro tipo, e vice-versa.",
+      "- lacunas: o que não foi encontrado, não foi confirmado, ficou contraditório, pode ter mudado, ou merece apuração complementar.",
+      "- matrizEvidencias: cada conclusão relevante associada à evidência e classificada (confirmado/bem_sustentado/indicio/nao_localizado/divergente).",
+      "- fontes: lista final para a seção recolhível.",
+      "Nunca invente dado não sustentado pelas fontes acima. Use 'nao_localizado' (nível de evidência) quando não houver evidência suficiente, e nunca preencha uma métrica ausente com zero.",
+    ].join("\n"),
   );
   return parts.join("\n\n");
 }

@@ -120,7 +120,7 @@ async function syncMensagemComExecucao(execucao: NeoExecucaoRow): Promise<void> 
       etapas: etapasParaEvidencia(etapas),
       fontes,
     });
-    await atualizarMensagem(mensagem.id, { status: "parcial", conteudo: answer.resumoExecutivo, respostaEstruturada: answer }).catch(() => {});
+    await atualizarMensagem(mensagem.id, { status: "parcial", conteudo: answer.respostaDireta, respostaEstruturada: answer }).catch(() => {});
     return;
   }
 

@@ -1,10 +1,10 @@
 "use client";
 
-import { RefreshCw, RotateCcw, PlayCircle } from "lucide-react";
+import { RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AnswerView } from "@/components/neo/answer-view";
 import { EtapasConcluidasList } from "@/components/neo/etapas-list";
-import { neoAnswerSchema } from "@/lib/neo/answer";
+import { normalizeNeoAnswer } from "@/lib/neo/answer";
 import type { NeoMensagem } from "@/hooks/use-neo-conversas";
 
 export function MensagemUsuario({ conteudo }: { conteudo: string }) {
@@ -27,19 +27,20 @@ export interface MensagemAssistenteAcoes {
 
 export function MensagemAssistente({ mensagem, ...acoes }: { mensagem: NeoMensagem } & MensagemAssistenteAcoes) {
   if (mensagem.respostaEstruturada) {
-    const parsed = neoAnswerSchema.safeParse(mensagem.respostaEstruturada);
-    if (parsed.success) {
-      return (
-        <div className="space-y-2">
-          <div className="rounded-2xl rounded-tl-sm border border-border bg-white p-4 shadow-sm sm:p-5">
-            <AnswerView mensagemId={mensagem.id} answer={parsed.data} />
-          </div>
-          {mensagem.status === "parcial" ? (
-            <MensagemAcoes mensagem={mensagem} {...acoes} mostrarContinuar mostrarTentarNovamente mostrarEtapas />
-          ) : null}
+    const answer = normalizeNeoAnswer(mensagem.respostaEstruturada);
+    return (
+      <div className="space-y-2">
+        <div className="rounded-2xl rounded-tl-sm border border-border bg-white p-4 shadow-sm sm:p-5">
+          <AnswerView
+            mensagemId={mensagem.id}
+            answer={answer}
+            geradoEm={mensagem.criadoEm}
+            onContinuar={mensagem.status === "parcial" ? acoes.onContinuar : undefined}
+          />
         </div>
-      );
-    }
+        {mensagem.status === "parcial" ? <MensagemAcoes mensagem={mensagem} {...acoes} mostrarTentarNovamente mostrarEtapas /> : null}
+      </div>
+    );
   }
 
   if (mensagem.status === "em_execucao" || mensagem.status === "pendente") {
@@ -77,23 +78,15 @@ export function MensagemAssistente({ mensagem, ...acoes }: { mensagem: NeoMensag
 function MensagemAcoes({
   mensagem,
   onTentarNovamente,
-  onContinuar,
-  mostrarContinuar,
   mostrarTentarNovamente,
   mostrarEtapas,
 }: {
   mensagem: NeoMensagem;
-  mostrarContinuar?: boolean;
   mostrarTentarNovamente?: boolean;
   mostrarEtapas?: boolean;
 } & MensagemAssistenteAcoes) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {mostrarContinuar && onContinuar ? (
-        <Button variant="primary" size="sm" onClick={onContinuar}>
-          <PlayCircle className="h-4 w-4" /> Continuar investigação
-        </Button>
-      ) : null}
       {mostrarTentarNovamente && onTentarNovamente ? (
         <Button variant="secondary" size="sm" onClick={onTentarNovamente}>
           <RotateCcw className="h-4 w-4" /> Tentar novamente

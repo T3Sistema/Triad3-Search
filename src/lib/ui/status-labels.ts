@@ -145,3 +145,45 @@ export function translateAlertaCategoria(categoria?: string | null): string {
   if (!categoria) return "—";
   return NEO_ALERTA_CATEGORIA_LABELS[categoria.toLowerCase()] ?? categoria;
 }
+
+export const NEO_LACUNA_TIPO_LABELS: Record<string, string> = {
+  nao_encontrado: "Não encontrado",
+  nao_confirmado: "Não confirmado",
+  contraditorio: "Contraditório",
+  pode_ter_mudado: "Pode ter mudado",
+  investigacao_complementar: "Investigação complementar",
+};
+
+export function translateLacunaTipo(tipo?: string | null): string {
+  if (!tipo) return "—";
+  return NEO_LACUNA_TIPO_LABELS[tipo.toLowerCase()] ?? tipo;
+}
+
+export const NEO_PAPEL_PESSOA_LABELS: Record<string, string> = {
+  responsavel_legal: "Responsável legal",
+  administrador: "Administrador",
+  socio: "Sócio",
+  fundador: "Fundador",
+  proprietario: "Proprietário",
+  representante_publico: "Representante público",
+  relacionado: "Pessoa relacionada",
+};
+
+export function translatePapelPessoa(papel?: string | null): string {
+  if (!papel) return "—";
+  return NEO_PAPEL_PESSOA_LABELS[papel.toLowerCase()] ?? papel;
+}
+
+/** Rótulos exigidos especificamente para a matriz "Como cada conclusão foi sustentada" — reaproveita o enum de nível de evidência com o vocabulário exato pedido para essa seção. */
+export const NEO_EVIDENCIA_MATRIZ_LABELS: Record<string, string> = {
+  confirmado: "Confirmado",
+  bem_sustentado: "Relacionado",
+  indicio: "Não confirmado",
+  nao_localizado: "Não encontrado",
+  divergente: "Informação variável",
+};
+
+export function translateEvidenciaMatrizClassificacao(classificacao?: string | null): string {
+  if (!classificacao) return "—";
+  return NEO_EVIDENCIA_MATRIZ_LABELS[classificacao.toLowerCase()] ?? classificacao;
+}

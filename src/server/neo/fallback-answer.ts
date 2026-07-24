@@ -9,6 +9,11 @@ import { NEO_ANSWER_VERSION, type NeoAnswer, type NeoFonte } from "@/lib/neo/ans
  * before any synthesis ever ran. Never invents data: every fact comes
  * straight from a persisted tool result or source, so it works from either
  * the live in-memory executor state or rows read back from the database.
+ *
+ * Follows the same v2 report shape as a real synthesis (achados +
+ * respostaDireta + matrizEvidencias, fontes only in the collapsed section) —
+ * this must never regress into a bare list of completed tool calls and
+ * links, even in its simplest form.
  */
 
 export interface FallbackEtapaLike {
@@ -64,42 +69,41 @@ export function buildEvidenceFallbackAnswer(params: {
   const falhadas = params.etapas.filter((e) => !e.ok);
   const fontes = assignFallbackFonteIds(params.fontes);
 
-  const blocos: NeoAnswer["blocos"] = [
-    { tipo: "texto", titulo: "O que aconteceu", conteudo: params.motivo, fontesIds: [] },
-  ];
-
-  if (concluidas.length > 0) {
-    blocos.push({
-      tipo: "fatos",
-      titulo: "Etapas concluídas",
-      itens: concluidas.map((e) => ({
-        rotulo: e.nomePublico,
-        valor: summarizeToolResult(e.resumo),
-        tipo: null,
-        nivelEvidencia: "indicio" as const,
-        dataObservacao: null,
-        fontesIds: [],
-      })),
-    });
-  }
-
-  if (fontes.length > 0) {
-    blocos.push({ tipo: "fontes", itens: fontes });
-  }
-
-  const resumoExecutivo =
+  const respostaDireta =
     concluidas.length > 0
-      ? `${params.motivo} ${concluidas.length} etapa(s) foram concluídas antes da interrupção.`
+      ? `${params.motivo} ${concluidas.length} etapa(s) foram concluídas antes da interrupção e estão consolidadas abaixo.`
       : params.motivo;
+
+  const achados: NeoAnswer["achados"] = concluidas.map((e) => ({
+    conclusao: e.nomePublico,
+    explicacao: summarizeToolResult(e.resumo),
+    nivelEvidencia: "indicio",
+    fontesIds: [],
+  }));
+
+  const matrizEvidencias: NeoAnswer["matrizEvidencias"] = concluidas.map((e) => ({
+    conclusao: e.nomePublico,
+    evidencia: summarizeToolResult(e.resumo),
+    classificacao: "indicio",
+  }));
+
+  const blocos: NeoAnswer["blocos"] = [{ tipo: "texto", titulo: "O que aconteceu", conteudo: params.motivo, fontesIds: [] }];
 
   return {
     version: NEO_ANSWER_VERSION,
     status: "parcial",
-    titulo: "Investigação interrompida",
-    resumoExecutivo,
+    titulo: concluidas.length > 0 ? "Relatório parcial da investigação" : "Investigação interrompida",
+    objetivo: "Consolidar o que já havia sido apurado antes da interrupção.",
+    indicadoresPrincipais: [],
+    achados,
+    respostaDireta,
     blocos,
+    lacunas: falhadas.map((e) => ({
+      tipo: "nao_encontrado" as const,
+      descricao: `${e.nomePublico}: ${e.erroPublico ?? "não foi concluído"}`,
+    })),
+    matrizEvidencias,
     fontes,
-    informacoesAusentes: falhadas.map((e) => `${e.nomePublico}: ${e.erroPublico ?? "não foi concluído"}`),
     observacoes: ["Este relatório foi montado automaticamente a partir das etapas já concluídas, sem uma síntese final do modelo."],
     proximasAcoes: concluidas.length > 0 ? ["Continue esta investigação para tentar concluir o relatório completo."] : [],
     perguntaNecessaria: null,

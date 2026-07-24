@@ -556,7 +556,7 @@ async function finishWithAnswer(params: FinishWithAnswerParams): Promise<void> {
     }).catch(() => {});
   }
 
-  const camposAusentes = answer.informacoesAusentes;
+  const camposAusentes = answer.lacunas.map((l) => l.descricao);
   const camposEncontrados = params.camposSolicitados.filter((campo) => !camposAusentes.includes(campo));
   const execucaoStatus = answer.status === "parcial" ? "parcial" : "concluida";
 
@@ -572,7 +572,7 @@ async function finishWithAnswer(params: FinishWithAnswerParams): Promise<void> {
   if (params.mensagemId) {
     await atualizarMensagem(params.mensagemId, {
       status: answer.status === "parcial" ? "parcial" : "concluida",
-      conteudo: answer.resumoExecutivo,
+      conteudo: answer.respostaDireta,
       respostaEstruturada: answer,
     });
   }

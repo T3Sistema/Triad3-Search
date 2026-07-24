@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { neoPlanSchema, neoVerificacaoSchema, neoResumoConversaSchema, neoTituloConversaSchema } from "./schemas";
+import { neoPlanSchema, neoResumoConversaSchema, neoTituloConversaSchema } from "./schemas";
 
 function validPlan() {
   return {
@@ -36,19 +36,6 @@ describe("neoPlanSchema", () => {
   it("accepts a blocking-ambiguity plan with a follow-up question", () => {
     const plan = { ...validPlan(), ambiguidadeBloqueante: true, perguntaNecessaria: "Qual empresa, exatamente?" };
     expect(neoPlanSchema.safeParse(plan).success).toBe(true);
-  });
-});
-
-describe("neoVerificacaoSchema", () => {
-  it("accepts a well-formed verification result", () => {
-    const result = neoVerificacaoSchema.safeParse({
-      camposEncontrados: ["site oficial"],
-      camposAusentes: ["telefone"],
-      divergenciasDetectadas: [],
-      necessitaNovaConsulta: false,
-      motivoNovaConsulta: null,
-    });
-    expect(result.success).toBe(true);
   });
 });
 

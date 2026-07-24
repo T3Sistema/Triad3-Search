@@ -1,26 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderNeoAnswerAsMarkdown } from "./markdown";
-import { NEO_ANSWER_VERSION, type NeoAnswer } from "@/lib/neo/answer";
-
-function baseAnswer(overrides: Partial<NeoAnswer> = {}): NeoAnswer {
-  return {
-    version: NEO_ANSWER_VERSION,
-    status: "completo",
-    titulo: "Relatório de teste",
-    resumoExecutivo: "Resumo executivo.",
-    blocos: [],
-    fontes: [],
-    informacoesAusentes: [],
-    observacoes: [],
-    proximasAcoes: [],
-    perguntaNecessaria: null,
-    ...overrides,
-  };
-}
+import { baseNeoAnswer as baseAnswer } from "@/lib/neo/answer-fixtures";
 
 describe("renderNeoAnswerAsMarkdown", () => {
-  it("includes the title and executive summary", () => {
-    const md = renderNeoAnswerAsMarkdown(baseAnswer());
+  it("includes the title and direct answer", () => {
+    const md = renderNeoAnswerAsMarkdown(baseAnswer({ respostaDireta: "Resumo executivo." }));
     expect(md).toContain("# Relatório de teste");
     expect(md).toContain("Resumo executivo.");
   });
@@ -35,14 +19,14 @@ describe("renderNeoAnswerAsMarkdown", () => {
     expect(md).toContain("| A | 1 |");
   });
 
-  it("lists missing information and sources as separate sections", () => {
+  it("lists gaps and sources as separate sections", () => {
     const md = renderNeoAnswerAsMarkdown(
       baseAnswer({
-        informacoesAusentes: ["Telefone"],
+        lacunas: [{ tipo: "nao_encontrado", descricao: "Telefone" }],
         fontes: [{ id: "f1", titulo: "Fonte A", url: "https://a.com", dominio: "a.com", dataAcesso: "2026-01-01" }],
       }),
     );
-    expect(md).toContain("## Informações não localizadas");
+    expect(md).toContain("## O que ainda merece apuração");
     expect(md).toContain("Telefone");
     expect(md).toContain("## Fontes");
     expect(md).toContain("https://a.com");

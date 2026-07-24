@@ -4,7 +4,7 @@ vi.mock("@/server/neo/client", () => ({ callNeoResponses: vi.fn() }));
 
 import { callNeoResponses } from "@/server/neo/client";
 import { synthesizeAnswer, assignFonteIds } from "@/server/neo/synthesizer";
-import { NEO_ANSWER_VERSION } from "@/lib/neo/answer";
+import { baseNeoAnswer } from "@/lib/neo/answer-fixtures";
 
 type FakeResponse = Awaited<ReturnType<typeof callNeoResponses>>;
 
@@ -13,18 +13,7 @@ function fakeTextResponse(outputText: string, usage = { input_tokens: 10, output
 }
 
 function validAnswerJson() {
-  return JSON.stringify({
-    version: NEO_ANSWER_VERSION,
-    status: "completo",
-    titulo: "Relatório",
-    resumoExecutivo: "Resumo.",
-    blocos: [],
-    fontes: [],
-    informacoesAusentes: [],
-    observacoes: [],
-    proximasAcoes: [],
-    perguntaNecessaria: null,
-  });
+  return JSON.stringify(baseNeoAnswer({ titulo: "Relatório", respostaDireta: "Resumo." }));
 }
 
 const input = {

@@ -1,5 +1,6 @@
 import "server-only";
 import type { NeoAnswer, NeoBloco } from "@/lib/neo/answer";
+import { translateEvidenciaMatrizClassificacao, translateLacunaTipo, translateNivelEvidencia } from "@/lib/ui/status-labels";
 
 function renderBloco(bloco: NeoBloco): string {
   switch (bloco.tipo) {
@@ -9,7 +10,7 @@ function renderBloco(bloco: NeoBloco): string {
       return [
         bloco.titulo ? `### ${bloco.titulo}` : null,
         ...bloco.itens.map(
-          (f) => `- **${f.rotulo}:** ${f.valor} _(${f.nivelEvidencia}${f.dataObservacao ? `, observado em ${f.dataObservacao}` : ""})_`,
+          (f) => `- **${f.rotulo}:** ${f.valor} _(${translateNivelEvidencia(f.nivelEvidencia)}${f.dataObservacao ? `, observado em ${f.dataObservacao}` : ""})_`,
         ),
       ]
         .filter(Boolean)
@@ -19,8 +20,50 @@ function renderBloco(bloco: NeoBloco): string {
         `### ${bloco.nome}`,
         bloco.subtitulo,
         bloco.descricao,
-        ...bloco.atributos.map((a) => `- **${a.rotulo}:** ${a.valor}`),
+        ...bloco.identificadores.map((a) => `- **${a.rotulo}:** ${a.valor}`),
+        ...bloco.atributos.map((a) => `- **${a.rotulo}:** ${a.valor} _(${translateNivelEvidencia(a.nivelEvidencia)})_`),
         ...bloco.links.map((l) => `- [${l.rotulo}](${l.url})`),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    case "pessoa":
+      return [
+        `### ${bloco.nome}`,
+        ...bloco.papeis.map((p) => `- ${p.classificacao} _(${translateNivelEvidencia(p.nivelEvidencia)})_`),
+        ...bloco.organizacoesRelacionadas.map((o) => `- ${o.nome}: ${o.relacao}`),
+        ...bloco.atributos.map((a) => `- **${a.rotulo}:** ${a.valor} _(${translateNivelEvidencia(a.nivelEvidencia)})_`),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    case "perfil_social":
+      return [
+        `### ${bloco.nome}${bloco.arroba ? ` (${bloco.arroba})` : ""}`,
+        bloco.bio,
+        [
+          bloco.seguidores ? `${bloco.seguidores} seguidores` : null,
+          bloco.seguindo ? `${bloco.seguindo} seguindo` : null,
+          bloco.publicacoes ? `${bloco.publicacoes} publicações` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null,
+        bloco.relacao,
+        bloco.metricaVariavel ? "_Métricas variáveis, sujeitas a mudança._" : null,
+        bloco.url ? `[Ver perfil](${bloco.url})` : null,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    case "publicacao":
+      return [
+        bloco.legenda,
+        [
+          bloco.dataPublicacao,
+          bloco.curtidas ? `${bloco.curtidas} curtidas` : null,
+          bloco.comentarios ? `${bloco.comentarios} comentários` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null,
+        bloco.contexto,
+        bloco.url ? `[Ver publicação original](${bloco.url})` : null,
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -55,8 +98,6 @@ function renderBloco(bloco: NeoBloco): string {
         .join("\n");
     case "alerta":
       return `> ⚠️ ${bloco.mensagem}`;
-    case "fontes":
-      return bloco.itens.map((f) => `- [${f.titulo ?? f.url}](${f.url})`).join("\n");
     default:
       return "";
   }
@@ -65,20 +106,50 @@ function renderBloco(bloco: NeoBloco): string {
 export function renderNeoAnswerAsMarkdown(answer: NeoAnswer): string {
   const parts: string[] = [];
   parts.push(`# ${answer.titulo}`);
-  parts.push(answer.resumoExecutivo);
+  if (answer.objetivo) parts.push(answer.objetivo);
+
+  if (answer.indicadoresPrincipais.length > 0) {
+    parts.push(answer.indicadoresPrincipais.map((i) => `**${i.rotulo}:** ${i.valor}`).join("  \n"));
+  }
+
+  if (answer.achados.length > 0) {
+    parts.push(
+      `## O que a investigação encontrou\n\n${answer.achados
+        .map((a, i) => `${i + 1}. **${a.conclusao}** _(${translateNivelEvidencia(a.nivelEvidencia)})_ — ${a.explicacao}`)
+        .join("\n")}`,
+    );
+  }
+
+  if (answer.respostaDireta) {
+    parts.push(`## Resposta do Neo\n\n${answer.respostaDireta}`);
+  }
+
   for (const bloco of answer.blocos) {
     const rendered = renderBloco(bloco);
     if (rendered) parts.push(rendered);
   }
-  if (answer.informacoesAusentes.length > 0) {
-    parts.push(`## Informações não localizadas\n\n${answer.informacoesAusentes.map((i) => `- ${i}`).join("\n")}`);
+
+  if (answer.lacunas.length > 0) {
+    parts.push(
+      `## O que ainda merece apuração\n\n${answer.lacunas.map((l) => `- **${translateLacunaTipo(l.tipo)}:** ${l.descricao}`).join("\n")}`,
+    );
   }
+
+  if (answer.matrizEvidencias.length > 0) {
+    const header = "| Conclusão | Evidência | Classificação |";
+    const divider = "| --- | --- | --- |";
+    const rows = answer.matrizEvidencias.map(
+      (m) => `| ${m.conclusao} | ${m.evidencia} | ${translateEvidenciaMatrizClassificacao(m.classificacao)} |`,
+    );
+    parts.push(`## Como cada conclusão foi sustentada\n\n${[header, divider, ...rows].join("\n")}`);
+  }
+
   if (answer.observacoes.length > 0) {
     parts.push(`## Observações\n\n${answer.observacoes.map((o) => `- ${o}`).join("\n")}`);
   }
   if (answer.fontes.length > 0) {
     parts.push(
-      `## Fontes\n\n${answer.fontes.map((f) => `- [${f.titulo ?? f.url}](${f.url})${f.dataAcesso ? ` — consultado em ${f.dataAcesso}` : ""}`).join("\n")}`,
+      `## Fontes\n\n${answer.fontes.map((f, i) => `${i + 1}. [${f.titulo ?? f.url}](${f.url})${f.dataAcesso ? ` — consultado em ${f.dataAcesso}` : ""}`).join("\n")}`,
     );
   }
   return parts.join("\n\n") + "\n";

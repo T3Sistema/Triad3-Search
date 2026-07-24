@@ -4,7 +4,7 @@ vi.mock("@/server/db/repositories/neo-mensagens");
 
 import * as mensagensRepo from "@/server/db/repositories/neo-mensagens";
 import { loadNeoExportContext, sanitizeFileNameFragment } from "./context";
-import { NEO_ANSWER_VERSION } from "@/lib/neo/answer";
+import { baseNeoAnswer } from "@/lib/neo/answer-fixtures";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -49,18 +49,7 @@ describe("loadNeoExportContext", () => {
   });
 
   it("returns the answer and finds the preceding user question when everything is valid", async () => {
-    const answer = {
-      version: NEO_ANSWER_VERSION,
-      status: "completo",
-      titulo: "t",
-      resumoExecutivo: "r",
-      blocos: [],
-      fontes: [],
-      informacoesAusentes: [],
-      observacoes: [],
-      proximasAcoes: [],
-      perguntaNecessaria: null,
-    };
+    const answer = baseNeoAnswer({ titulo: "t", respostaDireta: "r" });
     vi.mocked(mensagensRepo.buscarMensagemPorId).mockResolvedValue({
       id: "msg2",
       conversaId: "conv1",
