@@ -35,8 +35,9 @@ import { ErrorView } from "@/components/viewer/error-view";
 import { EmptyState } from "@/components/viewer/empty-state";
 import { useCreateMonitorMutation, useDeleteMonitorMutation, useMonitorList, usePauseMonitorMutation, useResumeMonitorMutation } from "@/hooks/use-monitor";
 import { isHttpUrl } from "@/lib/url";
-import type { ScrapeFormat } from "@/lib/scrapegraph/formats";
-import type { MonitorResponse } from "@/lib/scrapegraph/types";
+import { toneForStatus, translateStatus } from "@/lib/ui/status-labels";
+import type { ScrapeFormat } from "@/lib/integration/formats";
+import type { MonitorResponse } from "@/server/integrations/web-intelligence/types";
 
 const CRON_PRESETS = [
   { value: "*/10 * * * *", label: "A cada 10 minutos" },
@@ -179,7 +180,7 @@ function CreateMonitorTab({ onCreated }: { onCreated: () => void }) {
                 id="monitor-webhook"
                 value={webhookUrl}
                 onChange={(e) => setWebhookUrl(e.target.value)}
-                placeholder="https://meusite.com/webhooks/scrapegraph"
+                placeholder="https://meusite.com/webhooks/monitoramento"
               />
             </div>
 
@@ -198,18 +199,12 @@ function CreateMonitorTab({ onCreated }: { onCreated: () => void }) {
           <CardDescription>Confira antes de criar o monitor.</CardDescription>
         </CardHeader>
         <CardContent>
-          <RequestPreview method="POST" internalEndpoint="/api/sgai/monitor" externalEndpoint="/monitor" body={requestBody} />
+          <RequestPreview method="POST" internalEndpoint="/api/triad3/monitoramentos" body={requestBody} />
         </CardContent>
       </Card>
     </div>
   );
 }
-
-const STATUS_VARIANT: Record<string, "success" | "warning" | "error" | "neutral"> = {
-  active: "success",
-  paused: "warning",
-  deleted: "error",
-};
 
 function ManageMonitorsTab() {
   const { data, isLoading, isError, error, refetch, isFetching } = useMonitorList();
@@ -256,7 +251,7 @@ function MonitorRow({ monitor }: { monitor: MonitorResponse }) {
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <p className="truncate font-medium text-text-primary">{monitor.name ?? monitor.cronId}</p>
-          <Badge variant={STATUS_VARIANT[monitor.status ?? ""] ?? "neutral"}>{monitor.status ?? "—"}</Badge>
+          <Badge variant={toneForStatus(monitor.status)}>{translateStatus(monitor.status)}</Badge>
         </div>
         <p className="truncate text-xs text-text-secondary">{monitor.url}</p>
         <p className="font-mono text-xs text-text-secondary">{monitor.interval}</p>

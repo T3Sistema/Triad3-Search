@@ -11,12 +11,11 @@ import { toast } from "sonner";
 interface RequestPreviewProps {
   method: string;
   internalEndpoint: string;
-  externalEndpoint: string;
   body: unknown;
 }
 
-export function RequestPreview({ method, internalEndpoint, externalEndpoint, body }: RequestPreviewProps) {
-  const curl = buildCurlPreview(externalEndpoint, body);
+export function RequestPreview({ method, internalEndpoint, body }: RequestPreviewProps) {
+  const curl = buildCurlPreview(internalEndpoint, body);
 
   const copy = async (text: string, label: string) => {
     const ok = await copyToClipboard(text);
@@ -30,10 +29,8 @@ export function RequestPreview({ method, internalEndpoint, externalEndpoint, bod
         <dd>
           <Badge variant="outline">{method}</Badge>
         </dd>
-        <dt className="text-text-secondary">Endpoint interno</dt>
+        <dt className="text-text-secondary">Endpoint</dt>
         <dd className="font-mono text-text-primary">{internalEndpoint}</dd>
-        <dt className="text-text-secondary">Endpoint ScrapeGraphAI</dt>
-        <dd className="font-mono text-text-primary">{externalEndpoint}</dd>
       </dl>
 
       <div className="space-y-1.5">

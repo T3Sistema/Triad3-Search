@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run check:ui-policy && next build && npm run check:ui-policy:static",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:ui-policy": "node scripts/check-ui-policy.mjs",
+    "check:ui-policy:static": "node scripts/check-ui-policy.mjs --static"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

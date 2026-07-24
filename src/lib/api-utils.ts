@@ -1,6 +1,6 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import { toErrorResponseBody, type NormalizedError } from "./scrapegraph/errors";
+import { toErrorResponseBody, type NormalizedError } from "@/server/integrations/web-intelligence/errors";
 
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024; // 2MB, matches the raw HTML/Markdown limit.
 

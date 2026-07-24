@@ -10,16 +10,16 @@ export interface NavItem {
 }
 
 export const PLAYGROUND_ITEMS: NavItem[] = [
-  { key: "scrape", label: "Scrape", href: "/", icon: Globe, description: "Captura páginas em múltiplos formatos" },
-  { key: "extract", label: "Extract", href: "/extract", icon: FileSearch, description: "Extração estruturada com IA" },
-  { key: "search", label: "Search", href: "/search", icon: Search, description: "Busca na web com resultados processados" },
-  { key: "crawl", label: "Crawl", href: "/crawl", icon: Waypoints, description: "Rastreamento de múltiplas páginas" },
-  { key: "monitor", label: "Monitor", href: "/monitor", icon: Activity, description: "Monitoramento agendado de páginas" },
+  { key: "scrape", label: "Capturar", href: "/", icon: Globe, description: "Captura páginas em múltiplos formatos" },
+  { key: "extract", label: "Extrair", href: "/extract", icon: FileSearch, description: "Extração estruturada com IA" },
+  { key: "search", label: "Pesquisar", href: "/search", icon: Search, description: "Busca na web com resultados processados" },
+  { key: "crawl", label: "Mapear site", href: "/crawl", icon: Waypoints, description: "Rastreamento de múltiplas páginas" },
+  { key: "monitor", label: "Monitorar", href: "/monitor", icon: Activity, description: "Monitoramento agendado de páginas" },
 ];
 
 export const SECONDARY_ITEMS: NavItem[] = [
   { key: "history", label: "Histórico", href: "/history", icon: History, description: "Requisições realizadas" },
-  { key: "docs", label: "Documentação", href: "/docs", icon: BookOpen, description: "Como usar o Triad3 Search" },
+  { key: "docs", label: "Ajuda", href: "/docs", icon: BookOpen, description: "Como usar o Triad3 Search" },
 ];
 
 export const ALL_NAV_ITEMS = [...PLAYGROUND_ITEMS, ...SECONDARY_ITEMS];

@@ -12,6 +12,8 @@ import { LoadingView } from "@/components/viewer/loading-view";
 import { EmptyState } from "@/components/viewer/empty-state";
 import { useHistoryDetail } from "@/hooks/use-history";
 import { copyToClipboard, downloadJson } from "@/lib/download";
+import { formatDateTime, formatMilliseconds } from "@/lib/ui/formatting";
+import { toneForStatus, translateService, translateStatus } from "@/lib/ui/status-labels";
 
 export function HistoryDetailPage({ id }: { id: string }) {
   const { data, isLoading, isError, error } = useHistoryDetail(id);
@@ -31,19 +33,17 @@ export function HistoryDetailPage({ id }: { id: string }) {
         <div>
           <CardTitle className="font-mono text-sm">{data.id}</CardTitle>
           <CardDescription className="flex items-center gap-2">
-            <span>{data.service}</span>
-            <Badge variant={data.status === "completed" ? "success" : data.status === "failed" ? "error" : "neutral"}>
-              {data.status ?? "—"}
-            </Badge>
-            {typeof data.elapsedMs === "number" && <span>{data.elapsedMs.toLocaleString("pt-BR")} ms</span>}
-            {data.createdAt && <span>{new Date(data.createdAt).toLocaleString("pt-BR")}</span>}
+            <span>{translateService(data.service)}</span>
+            <Badge variant={toneForStatus(data.status)}>{translateStatus(data.status)}</Badge>
+            {typeof data.elapsedMs === "number" && <span>{formatMilliseconds(data.elapsedMs)}</span>}
+            {data.createdAt && <span>{formatDateTime(data.createdAt)}</span>}
           </CardDescription>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => copy(data, "JSON")}>
             <Copy className="h-3.5 w-3.5" /> Copiar JSON
           </Button>
-          <Button variant="outline" size="sm" onClick={() => downloadJson(data, `history-${data.id}.json`)}>
+          <Button variant="outline" size="sm" onClick={() => downloadJson(data, `historico-${data.id}.json`)}>
             <Download className="h-3.5 w-3.5" /> Baixar JSON
           </Button>
         </div>

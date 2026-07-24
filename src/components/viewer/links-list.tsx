@@ -1,6 +1,7 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
+import { formatNumber } from "@/lib/ui/formatting";
 
 export function LinksList({ links, count }: { links: string[]; count?: number }) {
   if (!links || links.length === 0) {
@@ -9,7 +10,7 @@ export function LinksList({ links, count }: { links: string[]; count?: number })
   return (
     <div className="space-y-2">
       {typeof count === "number" && (
-        <p className="text-xs text-text-secondary">{count.toLocaleString("pt-BR")} link(s) encontrados</p>
+        <p className="text-xs text-text-secondary">{formatNumber(count)} link(s) encontrados</p>
       )}
       <ul className="max-h-[480px] divide-y divide-border overflow-y-auto rounded-lg border border-border bg-white">
         {links.map((link, index) => (

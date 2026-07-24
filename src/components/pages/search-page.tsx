@@ -27,7 +27,7 @@ import { ErrorView } from "@/components/viewer/error-view";
 import { LoadingView } from "@/components/viewer/loading-view";
 import { EmptyState } from "@/components/viewer/empty-state";
 import { useSearchMutation } from "@/hooks/use-search";
-import { SEARCH_TIME_RANGES } from "@/lib/scrapegraph/schemas";
+import { SEARCH_TIME_RANGES } from "@/lib/integration/schemas";
 
 const TIME_RANGE_LABELS: Record<string, string> = {
   none: "Sem filtro",
@@ -115,8 +115,8 @@ export function SearchPage() {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,42%)_minmax(0,1fr)]">
       <Card>
         <CardHeader>
-          <CardTitle>Requisição — Search</CardTitle>
-          <CardDescription>Busca na web com resultados processados pela ScrapeGraphAI.</CardDescription>
+          <CardTitle>Requisição — Pesquisar</CardTitle>
+          <CardDescription>Busca na web com resultados processados pelo serviço.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
@@ -219,17 +219,17 @@ export function SearchPage() {
       <Card>
         <CardHeader>
           <CardTitle>Resposta</CardTitle>
-          <CardDescription>Resultados da busca processados pela ScrapeGraphAI.</CardDescription>
+          <CardDescription>Resultados da busca processados pelo serviço.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {mutation.data && (
             <ResultToolbar
               requestId={mutation.data.id}
               status="completed"
-              endpoint="/api/search"
+              endpoint="/api/triad3/pesquisar"
               data={mutation.data}
               requestBody={requestBody}
-              filename={`search-${mutation.data.id ?? "resultado"}.json`}
+              filename={`pesquisa-${mutation.data.id ?? "resultado"}.json`}
             />
           )}
 
@@ -285,7 +285,7 @@ export function SearchPage() {
             <TabsContent value="json">{mutation.data ? <JsonCode data={mutation.data} /> : <EmptyState />}</TabsContent>
 
             <TabsContent value="request">
-              <RequestPreview method="POST" internalEndpoint="/api/sgai/search" externalEndpoint="/search" body={requestBody} />
+              <RequestPreview method="POST" internalEndpoint="/api/triad3/pesquisar" body={requestBody} />
             </TabsContent>
           </Tabs>
         </CardContent>

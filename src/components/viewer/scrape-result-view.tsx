@@ -7,8 +7,8 @@ import { ImagesGrid } from "@/components/viewer/images-grid";
 import { ScreenshotView } from "@/components/viewer/screenshot-view";
 import { JsonTree } from "@/components/viewer/json-tree";
 import { EmptyState } from "@/components/viewer/empty-state";
-import { asScreenshotUrl, asStringArray, asText } from "@/lib/scrapegraph/render-helpers";
-import type { FormatResult, ScrapeResults } from "@/lib/scrapegraph/types";
+import { asScreenshotUrl, asStringArray, asText } from "@/lib/integration/render-helpers";
+import type { FormatResult, ScrapeResults } from "@/server/integrations/web-intelligence/types";
 
 const SECTION_LABELS: Record<string, string> = {
   markdown: "Markdown",

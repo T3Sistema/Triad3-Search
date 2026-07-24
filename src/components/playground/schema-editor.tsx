@@ -33,7 +33,7 @@ export function SchemaEditor({ value, onChange, promptForAi, label = "Schema (JS
 
   const aiGeneration = useMutation({
     mutationFn: () =>
-      apiPost<{ schema?: unknown } & Record<string, unknown>>("/api/sgai/schema", {
+      apiPost<{ schema?: unknown } & Record<string, unknown>>("/api/triad3/schema", {
         prompt: promptForAi || "Gere um schema apropriado para os dados solicitados.",
         existing_schema: validation.valid ? validation.value : undefined,
       }),

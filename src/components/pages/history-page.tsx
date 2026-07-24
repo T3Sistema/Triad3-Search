@@ -11,16 +11,9 @@ import { LoadingView } from "@/components/viewer/loading-view";
 import { ErrorView } from "@/components/viewer/error-view";
 import { EmptyState } from "@/components/viewer/empty-state";
 import { useHistoryList } from "@/hooks/use-history";
-import { HISTORY_SERVICES } from "@/lib/scrapegraph/schemas";
-
-const SERVICE_LABELS: Record<string, string> = {
-  scrape: "Scrape",
-  extract: "Extract",
-  search: "Search",
-  monitor: "Monitor",
-  crawl: "Crawl",
-  schema: "Schema",
-};
+import { HISTORY_SERVICES } from "@/lib/integration/schemas";
+import { formatDateTime, formatMilliseconds } from "@/lib/ui/formatting";
+import { SERVICE_LABELS, toneForStatus, translateService, translateStatus } from "@/lib/ui/status-labels";
 
 export function HistoryPage() {
   const [page, setPage] = React.useState(1);
@@ -53,7 +46,7 @@ export function HistoryPage() {
               <SelectItem value="all">Todos os serviços</SelectItem>
               {HISTORY_SERVICES.map((s) => (
                 <SelectItem key={s} value={s}>
-                  {SERVICE_LABELS[s]}
+                  {SERVICE_LABELS[s] ?? s}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -87,14 +80,12 @@ export function HistoryPage() {
                 <tbody className="divide-y divide-border">
                   {items.map((item) => (
                     <tr key={item.id}>
-                      <td className="px-3 py-2">{item.createdAt ? new Date(item.createdAt).toLocaleString("pt-BR") : "—"}</td>
-                      <td className="px-3 py-2">{SERVICE_LABELS[String(item.service)] ?? item.service}</td>
+                      <td className="px-3 py-2">{formatDateTime(item.createdAt)}</td>
+                      <td className="px-3 py-2">{translateService(item.service)}</td>
                       <td className="px-3 py-2">
-                        <Badge variant={item.status === "completed" ? "success" : item.status === "failed" ? "error" : "neutral"}>
-                          {item.status ?? "—"}
-                        </Badge>
+                        <Badge variant={toneForStatus(item.status)}>{translateStatus(item.status)}</Badge>
                       </td>
-                      <td className="px-3 py-2">{typeof item.elapsedMs === "number" ? `${item.elapsedMs.toLocaleString("pt-BR")} ms` : "—"}</td>
+                      <td className="px-3 py-2">{formatMilliseconds(item.elapsedMs)}</td>
                       <td className="max-w-[160px] truncate px-3 py-2 font-mono text-xs" title={item.id}>{item.id}</td>
                       <td className="px-3 py-2">
                         <Link href={`/history/${item.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">

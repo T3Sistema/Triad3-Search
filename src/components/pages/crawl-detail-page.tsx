@@ -30,22 +30,10 @@ import {
 } from "@/hooks/use-crawl";
 import { downloadJson, downloadText } from "@/lib/download";
 import { rowsToCsv, withCsvBom } from "@/lib/csv";
-import type { CrawlPageEntry } from "@/lib/scrapegraph/types";
+import { formatDateTime, formatNumber } from "@/lib/ui/formatting";
+import { toneForStatus, translateStatus } from "@/lib/ui/status-labels";
+import type { CrawlPageEntry } from "@/server/integrations/web-intelligence/types";
 import Link from "next/link";
-
-const STATUS_LABELS: Record<string, string> = {
-  running: "Em execução",
-  completed: "Concluído",
-  failed: "Falhou",
-  stopped: "Interrompido",
-};
-
-const STATUS_VARIANT: Record<string, "success" | "warning" | "error" | "neutral"> = {
-  running: "warning",
-  completed: "success",
-  failed: "error",
-  stopped: "neutral",
-};
 
 export function CrawlDetailPage({ id }: { id: string }) {
   const router = useRouter();
@@ -79,10 +67,10 @@ export function CrawlDetailPage({ id }: { id: string }) {
     }
   };
 
-  const exportJson = () => downloadJson(pages, `crawl-${id}-paginas.json`);
+  const exportJson = () => downloadJson(pages, `mapeamento-${id}-paginas.json`);
   const exportCsv = () => {
     const csv = withCsvBom(rowsToCsv(pages as Record<string, unknown>[]));
-    downloadText(csv, `crawl-${id}-paginas.csv`, "text/csv");
+    downloadText(csv, `mapeamento-${id}-paginas.csv`, "text/csv");
   };
 
   if (statusQuery.isLoading) return <LoadingView />;
@@ -93,7 +81,7 @@ export function CrawlDetailPage({ id }: { id: string }) {
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle>Crawl {id}</CardTitle>
+            <CardTitle>Mapeamento {id}</CardTitle>
             <CardDescription>Acompanhamento em tempo real do rastreamento.</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -101,12 +89,12 @@ export function CrawlDetailPage({ id }: { id: string }) {
               <RefreshCw className="h-3.5 w-3.5" /> Atualizar
             </Button>
             {status === "running" && (
-              <Button variant="outline" size="sm" onClick={() => stopMutation.mutate(undefined, { onSuccess: () => toast.success("Crawl interrompido.") })}>
-                <Pause className="h-3.5 w-3.5" /> Parar
+              <Button variant="outline" size="sm" onClick={() => stopMutation.mutate(undefined, { onSuccess: () => toast.success("Mapeamento interrompido.") })}>
+                <Pause className="h-3.5 w-3.5" /> Interromper
               </Button>
             )}
             {status === "stopped" && (
-              <Button variant="outline" size="sm" onClick={() => resumeMutation.mutate(undefined, { onSuccess: () => toast.success("Crawl retomado.") })}>
+              <Button variant="outline" size="sm" onClick={() => resumeMutation.mutate(undefined, { onSuccess: () => toast.success("Mapeamento retomado.") })}>
                 <Play className="h-3.5 w-3.5" /> Retomar
               </Button>
             )}
@@ -118,9 +106,9 @@ export function CrawlDetailPage({ id }: { id: string }) {
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Excluir este crawl?</AlertDialogTitle>
+                  <AlertDialogTitle>Excluir este mapeamento?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Esta ação não pode ser desfeita. O registro do crawl será removido.
+                    Esta ação não pode ser desfeita. O registro do mapeamento será removido.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -129,7 +117,7 @@ export function CrawlDetailPage({ id }: { id: string }) {
                     onClick={() =>
                       deleteMutation.mutate(undefined, {
                         onSuccess: () => {
-                          toast.success("Crawl excluído.");
+                          toast.success("Mapeamento excluído.");
                           router.push("/crawl");
                         },
                         onError: (error) => toast.error(error instanceof Error ? error.message : "Falha ao excluir."),
@@ -145,13 +133,13 @@ export function CrawlDetailPage({ id }: { id: string }) {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
-            <Badge variant={STATUS_VARIANT[status ?? ""] ?? "neutral"}>{STATUS_LABELS[status ?? ""] ?? status ?? "—"}</Badge>
+            <Badge variant={toneForStatus(status)}>{translateStatus(status)}</Badge>
             <span className="text-sm text-text-secondary">
-              {finished.toLocaleString("pt-BR")} / {total.toLocaleString("pt-BR")} páginas
+              {formatNumber(finished)} / {formatNumber(total)} páginas
             </span>
             {statusQuery.data?.createdAt && (
               <span className="text-xs text-text-secondary">
-                Iniciado em {new Date(statusQuery.data.createdAt).toLocaleString("pt-BR")}
+                Iniciado em {formatDateTime(statusQuery.data.createdAt)}
               </span>
             )}
           </div>
@@ -163,7 +151,7 @@ export function CrawlDetailPage({ id }: { id: string }) {
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <div>
             <CardTitle>Páginas</CardTitle>
-            <CardDescription>{pages.length.toLocaleString("pt-BR")} página(s) carregada(s)</CardDescription>
+            <CardDescription>{formatNumber(pages.length)} página(s) carregada(s)</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={exportJson} disabled={pages.length === 0}>
@@ -183,8 +171,8 @@ export function CrawlDetailPage({ id }: { id: string }) {
                   <th className="px-3 py-2">Título</th>
                   <th className="px-3 py-2">Profund.</th>
                   <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Parent URL</th>
-                  <th className="px-3 py-2">Content-Type</th>
+                  <th className="px-3 py-2">URL de origem</th>
+                  <th className="px-3 py-2">Tipo de conteúdo</th>
                   <th className="px-3 py-2">Links</th>
                   <th className="px-3 py-2">Ação</th>
                 </tr>
@@ -197,7 +185,9 @@ export function CrawlDetailPage({ id }: { id: string }) {
                     </td>
                     <td className="max-w-[160px] truncate px-3 py-2">{page.title ?? "—"}</td>
                     <td className="px-3 py-2">{page.depth ?? "—"}</td>
-                    <td className="px-3 py-2">{page.status ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <Badge variant={toneForStatus(page.status)}>{translateStatus(page.status)}</Badge>
+                    </td>
                     <td className="max-w-[160px] truncate px-3 py-2 font-mono text-xs" title={page.parentUrl}>
                       {page.parentUrl ?? "—"}
                     </td>
