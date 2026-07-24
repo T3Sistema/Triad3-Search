@@ -11,6 +11,10 @@ vi.mock("@/server/neo/planner");
 vi.mock("@/server/neo/executor");
 vi.mock("@/server/neo/synthesizer");
 vi.mock("@/server/neo/memory");
+vi.mock("@/server/neo/budget", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/neo/budget")>();
+  return { ...actual, createExecutionBudget: vi.fn(actual.createExecutionBudget) };
+});
 
 import * as conversasRepo from "@/server/db/repositories/neo-conversas";
 import * as mensagensRepo from "@/server/db/repositories/neo-mensagens";
@@ -20,6 +24,7 @@ import * as fontesRepo from "@/server/db/repositories/neo-fontes";
 import * as plannerMod from "@/server/neo/planner";
 import * as executorMod from "@/server/neo/executor";
 import * as synthesizerMod from "@/server/neo/synthesizer";
+import * as budgetMod from "@/server/neo/budget";
 import {
   startNeoExecution,
   runNeoExecution,
@@ -28,6 +33,7 @@ import {
 } from "@/server/neo/orchestrator";
 import { registerNeoExecution } from "@/server/neo/execution-registry";
 import { NEO_ANSWER_VERSION } from "@/lib/neo/answer";
+import { NEO_LIMITS } from "@/server/neo/limits";
 
 function fakeEmitter() {
   const events: NeoEvent[] = [];
@@ -86,12 +92,13 @@ const execucaoRowBase = {
   totalFerramentas: 0,
   tokensEntrada: null,
   tokensSaida: null,
+  ultimoHeartbeatEm: null,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(mensagensRepo.listarUltimasMensagens).mockResolvedValue([
-    { id: "msgA1", conversaId: "conv1", usuarioId: "u1", papel: "assistente", conteudo: null, respostaEstruturada: null, status: "em_execucao", criadoEm: "t" },
+    { id: "msgA1", conversaId: "conv1", usuarioId: "u1", papel: "assistente", conteudo: null, respostaEstruturada: null, status: "em_execucao", execucaoId: "exec1", criadoEm: "t" },
   ]);
   vi.mocked(mensagensRepo.inserirMensagem).mockResolvedValue({
     id: "msgU1",
@@ -101,6 +108,7 @@ beforeEach(() => {
     conteudo: "pergunta",
     respostaEstruturada: null,
     status: "concluida",
+    execucaoId: null,
     criadoEm: "t",
   });
   vi.mocked(mensagensRepo.atualizarMensagem).mockResolvedValue(undefined);
@@ -137,6 +145,7 @@ beforeEach(() => {
   });
   vi.mocked(etapasRepo.atualizarEtapa).mockResolvedValue(undefined);
   vi.mocked(etapasRepo.listarEtapas).mockResolvedValue([]);
+  vi.mocked(fontesRepo.listarFontes).mockResolvedValue([]);
   vi.mocked(fontesRepo.registrarFonte).mockResolvedValue({
     id: "f1",
     execucaoId: "exec1",
@@ -212,11 +221,75 @@ describe("runNeoExecution — entidade ambígua / pergunta bloqueante", () => {
   });
 });
 
+describe("runNeoExecution — persistência incremental (total_ferramentas, fontes, heartbeat)", () => {
+  it("updates total_ferramentas and registers sources as soon as each step completes, not only at the end", async () => {
+    vi.mocked(executorMod.runExecutor).mockImplementation(async (_plan, _msg, callbacks) => {
+      const etapaId = await callbacks.onEtapaIniciada({ nomePublico: "Pesquisando na web", ferramentaInterna: "pesquisar_web", argumentos: { q: "x" } });
+      await callbacks.onEtapaConcluida(etapaId, { resumo: { resultados: [1] }, fontes: [{ url: "https://a.com", titulo: "A" }], parcial: false });
+      return {
+        outcome: { status: "sem_ferramentas" },
+        state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 1, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      };
+    });
+    const { emitter } = fakeEmitter();
+    await runNeoExecution({
+      execucaoId: "exec1",
+      mensagemUsuarioId: "msgU1",
+      conversaId: "conv1",
+      usuarioId: "u1",
+      mensagemTexto: "pergunta",
+      emitter,
+      signal: new AbortController().signal,
+    });
+
+    // total_ferramentas is updated the moment the step finishes, before the execution as a whole ends.
+    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ totalFerramentas: 1 }));
+    // The source is persisted right away too, not deferred until finishWithAnswer.
+    expect(fontesRepo.registrarFonte).toHaveBeenCalledWith(expect.objectContaining({ execucaoId: "exec1", url: "https://a.com", titulo: "A" }));
+  });
+
+  it("sends a heartbeat (DB write + SSE event) on an interval while the execution is running", async () => {
+    vi.useFakeTimers();
+    try {
+      const resolver: { resolve: (() => void) | undefined } = { resolve: undefined };
+      vi.mocked(executorMod.runExecutor).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolver.resolve = () =>
+              resolve({
+                outcome: { status: "sem_ferramentas" },
+                state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+              });
+          }),
+      );
+      const { events, emitter } = fakeEmitter();
+      const runPromise = runNeoExecution({
+        execucaoId: "exec1",
+        mensagemUsuarioId: "msgU1",
+        conversaId: "conv1",
+        usuarioId: "u1",
+        mensagemTexto: "pergunta",
+        emitter,
+        signal: new AbortController().signal,
+      });
+
+      await vi.advanceTimersByTimeAsync(NEO_LIMITS.heartbeatIntervalMs * 2 + 100);
+      expect(events.some((e) => e.tipo === "heartbeat")).toBe(true);
+      expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ ultimoHeartbeatEm: expect.any(String) }));
+
+      resolver.resolve?.();
+      await runPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("runNeoExecution — resposta direta sem ferramenta", () => {
   it("emits execucao.iniciada, plano.pronto and resposta.concluida, marking the execution concluída", async () => {
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
@@ -242,7 +315,7 @@ describe("runNeoExecution — ação persistente aguardando confirmação", () =
         descricao: "Excluir o monitoramento m1.",
         ferramentaInterna: "monitor_excluir",
       },
-      state: { round: 1, toolCallsUsed: 1, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
@@ -269,7 +342,7 @@ describe("runNeoExecution — cancelamento", () => {
       outcome: { status: "cancelada" },
       state: {
         round: 1,
-        toolCallsUsed: 1,
+        toolCallsUsed: 1, searchCallsUsed: 0,
         evidence: [{ ferramenta: "pesquisar_web", nomePublico: "Pesquisando", argumentos: {}, ok: true, resumo: {} }],
         executedSignatures: [],
         fontes: [],
@@ -303,7 +376,7 @@ describe("runNeoExecution — cancelamento", () => {
   it("without any evidence: never calls the synthesizer and marks the execution cancelada", async () => {
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "cancelada" },
-      state: { round: 1, toolCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
@@ -325,7 +398,7 @@ describe("runNeoExecution — limite atingido", () => {
   it("emits execucao.parcial before the final answer and still produces a report", async () => {
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "limite_atingido", motivo: "Número máximo de rodadas atingido." },
-      state: { round: 10, toolCallsUsed: 20, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 10, toolCallsUsed: 20, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
@@ -345,11 +418,53 @@ describe("runNeoExecution — limite atingido", () => {
   });
 });
 
+describe("runNeoExecution — falha na síntese com relatório parcial de evidências", () => {
+  it("overrides the synthesizer's generic text-only fallback with the evidence-based report when there's usable evidence", async () => {
+    vi.mocked(executorMod.runExecutor).mockResolvedValue({
+      outcome: { status: "sem_ferramentas" },
+      state: {
+        round: 1,
+        toolCallsUsed: 1,
+        searchCallsUsed: 1,
+        evidence: [{ ferramenta: "pesquisar_web", nomePublico: "Pesquisando na web", argumentos: { q: "x" }, ok: true, resumo: { resultados: [{ url: "https://a.com" }] } }],
+        executedSignatures: [],
+        fontes: [{ url: "https://a.com" }],
+        tokensEntrada: 0,
+        tokensSaida: 0,
+      },
+    });
+    vi.mocked(synthesizerMod.synthesizeAnswer).mockResolvedValue({
+      answer: fakeAnswer({ titulo: "Resposta do Neo", blocos: [{ tipo: "texto", titulo: null, conteudo: "genérico", fontesIds: [] }] }),
+      fontes: [],
+      tokensEntrada: 1,
+      tokensSaida: 1,
+      validationFailed: true,
+    });
+    const { events, emitter } = fakeEmitter();
+    await runNeoExecution({
+      execucaoId: "exec1",
+      mensagemUsuarioId: "msgU1",
+      conversaId: "conv1",
+      usuarioId: "u1",
+      mensagemTexto: "pergunta",
+      emitter,
+      signal: new AbortController().signal,
+    });
+    const resposta = events.find((e) => e.tipo === "resposta.concluida");
+    const answer = resposta && "resposta" in resposta ? resposta.resposta : null;
+    // Not the synthesizer's generic "Resposta do Neo" fallback — the deterministic
+    // evidence-based one, which actually names the completed step.
+    expect(answer?.titulo).not.toBe("Resposta do Neo");
+    expect(JSON.stringify(answer?.blocos)).toContain("Pesquisando na web");
+    expect(answer?.status).toBe("parcial");
+  });
+});
+
 describe("runNeoExecution — falha", () => {
   it("marks the execution and message as falhou and never calls the synthesizer", async () => {
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "falhou", erroPublico: "Não foi possível iniciar a investigação." },
-      state: { round: 1, toolCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
@@ -396,7 +511,7 @@ describe("runNeoExecution — continuação de conversa", () => {
     });
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     const { emitter } = fakeEmitter();
     await runNeoExecution({
@@ -419,7 +534,7 @@ describe("runNeoExecution — informação ausente (campos encontrados/ausentes)
   it("computes camposEncontrados as camposSolicitados minus informacoesAusentes", async () => {
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     vi.mocked(synthesizerMod.synthesizeAnswer).mockResolvedValue({
       answer: fakeAnswer({ informacoesAusentes: ["telefone"] }),
@@ -445,12 +560,130 @@ describe("runNeoExecution — informação ausente (campos encontrados/ausentes)
   });
 });
 
+describe("runNeoExecution — continuar investigação (seed a partir de execução anterior)", () => {
+  it("seeds resumeState from the previous falhou/parcial execution's completed steps and sources, deduping them so the model doesn't re-pay for the same query", async () => {
+    vi.mocked(execucoesRepo.buscarExecucaoPorId).mockImplementation(async (_usuarioId: string, id: string) =>
+      id === "exec-anterior" ? { ...execucaoRowBase, id: "exec-anterior", status: "parcial" } : execucaoRowBase,
+    );
+    vi.mocked(etapasRepo.listarEtapas).mockResolvedValue([
+      {
+        id: "etapa-anterior",
+        execucaoId: "exec-anterior",
+        ordem: 1,
+        tipo: "ferramenta",
+        nomePublico: "Pesquisando na web",
+        ferramentaInterna: "pesquisar_web",
+        status: "concluida",
+        argumentosSanitizados: { q: "empresa x" },
+        resultadoResumido: { resultados: [{ url: "https://a.com" }] },
+        iniciadoEm: "t",
+        concluidoEm: "t",
+        erroPublico: null,
+      },
+    ]);
+    vi.mocked(fontesRepo.listarFontes).mockResolvedValue([
+      { id: "f1", execucaoId: "exec-anterior", url: "https://a.com", titulo: "A", dominio: "a.com", dataObservacao: "t", metadados: null, criadoEm: "t" },
+    ]);
+    vi.mocked(executorMod.runExecutor).mockResolvedValue({
+      outcome: { status: "sem_ferramentas" },
+      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+    });
+    const { emitter } = fakeEmitter();
+    await runNeoExecution({
+      execucaoId: "exec1",
+      mensagemUsuarioId: "msgU1",
+      conversaId: "conv1",
+      usuarioId: "u1",
+      mensagemTexto: "continue",
+      emitter,
+      signal: new AbortController().signal,
+      continuarExecucaoId: "exec-anterior",
+    });
+    const options = vi.mocked(executorMod.runExecutor).mock.calls[0]![3];
+    expect(options.resumeState?.evidence).toEqual([expect.objectContaining({ ferramenta: "pesquisar_web", ok: true })]);
+    expect(options.resumeState?.executedSignatures).toHaveLength(1);
+    expect(options.resumeState?.fontes).toEqual([expect.objectContaining({ url: "https://a.com" })]);
+    // Fresh round/tool-call counters — this is a brand-new execution with its own full budget,
+    // only the *content* carries over, never the exhausted limits from the previous attempt.
+    expect(options.resumeState?.round).toBe(0);
+    expect(options.resumeState?.toolCallsUsed).toBe(0);
+  });
+
+  it("ignores continuarExecucaoId pointing at an execution that isn't falhou/parcial (still active, or belongs to another conversation)", async () => {
+    vi.mocked(execucoesRepo.buscarExecucaoPorId).mockImplementation(async (_usuarioId: string, id: string) =>
+      id === "exec-ativa" ? { ...execucaoRowBase, id: "exec-ativa", status: "executando" } : execucaoRowBase,
+    );
+    vi.mocked(executorMod.runExecutor).mockResolvedValue({
+      outcome: { status: "sem_ferramentas" },
+      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+    });
+    const { emitter } = fakeEmitter();
+    await runNeoExecution({
+      execucaoId: "exec1",
+      mensagemUsuarioId: "msgU1",
+      conversaId: "conv1",
+      usuarioId: "u1",
+      mensagemTexto: "continue",
+      emitter,
+      signal: new AbortController().signal,
+      continuarExecucaoId: "exec-ativa",
+    });
+    const options = vi.mocked(executorMod.runExecutor).mock.calls[0]![3];
+    expect(options.resumeState).toBeUndefined();
+  });
+});
+
+describe("runNeoExecution — orçamento esgotado (fallback determinístico sem chamada à LLM)", () => {
+  it("builds the deterministic evidence-based report and never calls the synthesizer when there's no time left in the synthesis reserve", async () => {
+    const exhaustedBudget = {
+      startedAt: Date.now(),
+      totalBudgetMs: 240_000,
+      synthesisReserveMs: 45_000,
+      elapsedMs: () => 285_000,
+      toolsRemainingMs: () => 0,
+      synthesisRemainingMs: () => 0,
+      hasRoundBudget: () => false,
+      isExhausted: () => true,
+      hardDeadlineMs: () => 285_000,
+    };
+    vi.mocked(budgetMod.createExecutionBudget).mockReturnValueOnce(exhaustedBudget);
+    vi.mocked(executorMod.runExecutor).mockResolvedValue({
+      outcome: { status: "limite_atingido", motivo: "O tempo disponível para esta investigação se esgotou." },
+      state: {
+        round: 4,
+        toolCallsUsed: 3,
+        searchCallsUsed: 3,
+        evidence: [{ ferramenta: "pesquisar_web", nomePublico: "Pesquisando na web", argumentos: { q: "x" }, ok: true, resumo: { resultados: [{ url: "https://a.com" }] } }],
+        executedSignatures: [],
+        fontes: [{ url: "https://a.com" }],
+        tokensEntrada: 0,
+        tokensSaida: 0,
+      },
+    });
+    const { events, emitter } = fakeEmitter();
+    await runNeoExecution({
+      execucaoId: "exec1",
+      mensagemUsuarioId: "msgU1",
+      conversaId: "conv1",
+      usuarioId: "u1",
+      mensagemTexto: "pergunta",
+      emitter,
+      signal: new AbortController().signal,
+    });
+    expect(synthesizerMod.synthesizeAnswer).not.toHaveBeenCalled();
+    const resposta = events.find((e) => e.tipo === "resposta.concluida");
+    expect(resposta && "resposta" in resposta ? resposta.resposta.status : null).toBe("parcial");
+    expect(resposta && "resposta" in resposta ? JSON.stringify(resposta.resposta.blocos) : "").toContain("Pesquisando na web");
+    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "parcial" }));
+  });
+});
+
 describe("resumeNeoExecutionAfterConfirmation", () => {
   const pendingExecucao = {
     ...execucaoRowBase,
     status: "aguardando_confirmacao" as const,
     contextoPendente: {
-      state: { round: 1, toolCallsUsed: 1, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
       pendentes: [{ callId: "c1", name: "monitor_excluir", args: { monitoramentoId: "m1" } }],
       plan,
       mensagemId: "msgA1",
@@ -461,7 +694,7 @@ describe("resumeNeoExecutionAfterConfirmation", () => {
     vi.mocked(execucoesRepo.buscarExecucaoPorId).mockResolvedValue(pendingExecucao);
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 1, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     const { emitter } = fakeEmitter();
     await resumeNeoExecutionAfterConfirmation({
@@ -484,7 +717,7 @@ describe("resumeNeoExecutionAfterConfirmation", () => {
     vi.mocked(execucoesRepo.buscarExecucaoPorId).mockResolvedValue(pendingExecucao);
     vi.mocked(executorMod.runExecutor).mockResolvedValue({
       outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 1, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
+      state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 },
     });
     const { emitter } = fakeEmitter();
     await resumeNeoExecutionAfterConfirmation({

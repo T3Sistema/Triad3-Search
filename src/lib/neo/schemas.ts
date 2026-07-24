@@ -18,6 +18,8 @@ export const executarConversaRequestSchema = z.object({
     .min(1, "Escreva uma mensagem.")
     .max(NEO_MESSAGE_MAX_LENGTH, `A mensagem excede o limite de ${NEO_MESSAGE_MAX_LENGTH} caracteres.`),
   idempotencyKey: z.string().min(1).max(200).optional(),
+  /** Previous falhou/parcial execution (same conversation) to seed this run from — "Continuar investigação" never re-pays for completed steps. */
+  continuarExecucaoId: z.string().min(1).max(200).optional(),
 });
 export type ExecutarConversaRequest = z.infer<typeof executarConversaRequestSchema>;
 

@@ -12,6 +12,7 @@ export interface NeoMensagemRow {
   conteudo: string | null;
   respostaEstruturada: unknown;
   status: NeoMensagemStatus;
+  execucaoId: string | null;
   criadoEm: string;
 }
 
@@ -23,6 +24,7 @@ interface MensagemDbRow {
   conteudo: string | null;
   resposta_estruturada: unknown;
   status: string;
+  execucao_id: string | null;
   criado_em: string;
 }
 
@@ -35,11 +37,12 @@ function mapMensagem(row: MensagemDbRow): NeoMensagemRow {
     conteudo: row.conteudo,
     respostaEstruturada: row.resposta_estruturada,
     status: row.status as NeoMensagemStatus,
+    execucaoId: row.execucao_id,
     criadoEm: row.criado_em,
   };
 }
 
-const SELECT_COLUMNS = "id, conversa_id, usuario_id, papel, conteudo, resposta_estruturada, status, criado_em";
+const SELECT_COLUMNS = "id, conversa_id, usuario_id, papel, conteudo, resposta_estruturada, status, execucao_id, criado_em";
 
 export async function inserirMensagem(input: {
   conversaId: string;
@@ -48,6 +51,7 @@ export async function inserirMensagem(input: {
   conteudo?: string | null;
   respostaEstruturada?: unknown;
   status?: NeoMensagemStatus;
+  execucaoId?: string | null;
 }): Promise<NeoMensagemRow> {
   const { data, error } = await getSupabaseAdmin()
     .from("neo_mensagens")
@@ -58,6 +62,7 @@ export async function inserirMensagem(input: {
       conteudo: input.conteudo ?? null,
       resposta_estruturada: input.respostaEstruturada ?? null,
       status: input.status ?? "concluida",
+      execucao_id: input.execucaoId ?? null,
     })
     .select(SELECT_COLUMNS)
     .single<MensagemDbRow>();
@@ -98,6 +103,18 @@ export async function buscarMensagemPorId(usuarioId: string, id: string): Promis
     .select(SELECT_COLUMNS)
     .eq("usuario_id", usuarioId)
     .eq("id", id)
+    .maybeSingle<MensagemDbRow>();
+  if (error || !data) return null;
+  return mapMensagem(data);
+}
+
+/** The assistant placeholder message tied to a given execution — the stable link reconciliation uses instead of a recency heuristic. */
+export async function buscarMensagemPorExecucaoId(execucaoId: string): Promise<NeoMensagemRow | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("neo_mensagens")
+    .select(SELECT_COLUMNS)
+    .eq("execucao_id", execucaoId)
+    .eq("papel", "assistente")
     .maybeSingle<MensagemDbRow>();
   if (error || !data) return null;
   return mapMensagem(data);

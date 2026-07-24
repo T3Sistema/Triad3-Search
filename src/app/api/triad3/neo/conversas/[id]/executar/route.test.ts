@@ -92,4 +92,11 @@ describe("POST /api/triad3/neo/conversas/[id]/executar", () => {
     expect(text).toContain("execucao.iniciada");
     expect(orchestrator.runNeoExecution).not.toHaveBeenCalled();
   });
+
+  it("passes continuarExecucaoId through to the orchestrator so 'Continuar investigação' seeds from the previous run", async () => {
+    vi.mocked(orchestrator.startNeoExecution).mockResolvedValue({ ok: true, execucaoId: "e2", mensagemUsuarioId: "m2", alreadyExists: false });
+    vi.mocked(orchestrator.runNeoExecution).mockResolvedValue(undefined);
+    await POST(postRequest({ mensagem: "continue", continuarExecucaoId: "exec-anterior" }), ctx);
+    expect(orchestrator.runNeoExecution).toHaveBeenCalledWith(expect.objectContaining({ continuarExecucaoId: "exec-anterior" }));
+  });
 });

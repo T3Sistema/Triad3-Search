@@ -21,6 +21,7 @@ export interface NeoMensagem {
   conteudo: string | null;
   respostaEstruturada: unknown;
   status: "pendente" | "em_execucao" | "concluida" | "parcial" | "falhou" | "cancelada";
+  execucaoId: string | null;
   criadoEm: string;
 }
 
@@ -51,6 +52,38 @@ export function useNeoMensagens(conversaId: string | undefined) {
     queryKey: ["neo-mensagens", conversaId],
     queryFn: ({ signal }) => apiGet<{ data: NeoMensagem[] }>(`/api/triad3/neo/conversas/${conversaId}/mensagens`, signal),
     enabled: Boolean(conversaId),
+  });
+}
+
+export interface NeoExecucaoEtapa {
+  id: string;
+  ordem: number;
+  tipo: string;
+  nomePublico: string;
+  status: string;
+  erroPublico: string | null;
+}
+
+export interface NeoExecucaoDetalhe {
+  id: string;
+  conversaId: string;
+  status: string;
+  camposSolicitados: unknown;
+  camposEncontrados: unknown;
+  camposAusentes: unknown;
+  erroPublico: string | null;
+  iniciadoEm: string;
+  concluidoEm: string | null;
+  canceladoEm: string | null;
+  etapas: NeoExecucaoEtapa[];
+}
+
+/** Only fetched on demand (e.g. "Ver etapas concluídas") — the live progress panel already covers the streaming case. */
+export function useNeoExecucao(execucaoId: string | undefined, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ["neo-execucao", execucaoId],
+    queryFn: ({ signal }) => apiGet<NeoExecucaoDetalhe>(`/api/triad3/neo/execucoes/${execucaoId}`, signal),
+    enabled: Boolean(execucaoId) && (options.enabled ?? true),
   });
 }
 

@@ -25,6 +25,7 @@ describe("loadNeoExportContext", () => {
       conteudo: "pergunta",
       respostaEstruturada: null,
       status: "concluida",
+      execucaoId: null,
       criadoEm: "t",
     });
     const result = await loadNeoExportContext("u1", "msg1");
@@ -40,6 +41,7 @@ describe("loadNeoExportContext", () => {
       conteudo: null,
       respostaEstruturada: null,
       status: "em_execucao",
+      execucaoId: null,
       criadoEm: "t",
     });
     const result = await loadNeoExportContext("u1", "msg1");
@@ -67,11 +69,12 @@ describe("loadNeoExportContext", () => {
       conteudo: "resumo",
       respostaEstruturada: answer,
       status: "concluida",
+      execucaoId: null,
       criadoEm: "t2",
     });
     vi.mocked(mensagensRepo.listarMensagens).mockResolvedValue([
-      { id: "msg1", conversaId: "conv1", usuarioId: "u1", papel: "usuario", conteudo: "Qual a pergunta original?", respostaEstruturada: null, status: "concluida", criadoEm: "t1" },
-      { id: "msg2", conversaId: "conv1", usuarioId: "u1", papel: "assistente", conteudo: "resumo", respostaEstruturada: answer, status: "concluida", criadoEm: "t2" },
+      { id: "msg1", conversaId: "conv1", usuarioId: "u1", papel: "usuario", conteudo: "Qual a pergunta original?", respostaEstruturada: null, status: "concluida", execucaoId: null, criadoEm: "t1" },
+      { id: "msg2", conversaId: "conv1", usuarioId: "u1", papel: "assistente", conteudo: "resumo", respostaEstruturada: answer, status: "concluida", execucaoId: null, criadoEm: "t2" },
     ]);
     const result = await loadNeoExportContext("u1", "msg2");
     expect(result?.perguntaOriginal).toBe("Qual a pergunta original?");

@@ -3,6 +3,7 @@ import { atualizarConversaRequestSchema } from "@/lib/neo/schemas";
 import { atualizarConversa, buscarConversaPorId, excluirConversa } from "@/server/db/repositories/neo-conversas";
 import { neoError } from "@/server/neo/errors";
 import { jsonNeoError } from "@/server/neo/http";
+import { reconcileConversationExecution } from "@/server/neo/reconciliation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ export async function GET(_request: Request, ctx: { params: Params }) {
   const { id } = await ctx.params;
   const conversa = await buscarConversaPorId(auth.user.id, id);
   if (!conversa) return jsonNeoError(neoError("not_found"));
+  await reconcileConversationExecution(id).catch(() => {});
   return jsonOk(conversa);
 }
 

@@ -39,6 +39,7 @@ export interface NeoExecucaoRow {
   totalFerramentas: number;
   tokensEntrada: number | null;
   tokensSaida: number | null;
+  ultimoHeartbeatEm: string | null;
 }
 
 interface ExecucaoDbRow {
@@ -60,6 +61,7 @@ interface ExecucaoDbRow {
   total_ferramentas: number;
   tokens_entrada: number | null;
   tokens_saida: number | null;
+  ultimo_heartbeat_em: string | null;
 }
 
 function mapExecucao(row: ExecucaoDbRow): NeoExecucaoRow {
@@ -82,11 +84,12 @@ function mapExecucao(row: ExecucaoDbRow): NeoExecucaoRow {
     totalFerramentas: row.total_ferramentas,
     tokensEntrada: row.tokens_entrada,
     tokensSaida: row.tokens_saida,
+    ultimoHeartbeatEm: row.ultimo_heartbeat_em,
   };
 }
 
 const SELECT_COLUMNS =
-  "id, conversa_id, mensagem_usuario_id, usuario_id, status, plano, campos_solicitados, campos_encontrados, campos_ausentes, erro_publico, idempotency_key, contexto_pendente, iniciado_em, concluido_em, cancelado_em, total_ferramentas, tokens_entrada, tokens_saida";
+  "id, conversa_id, mensagem_usuario_id, usuario_id, status, plano, campos_solicitados, campos_encontrados, campos_ausentes, erro_publico, idempotency_key, contexto_pendente, iniciado_em, concluido_em, cancelado_em, total_ferramentas, tokens_entrada, tokens_saida, ultimo_heartbeat_em";
 
 export async function criarExecucao(input: {
   conversaId: string;
@@ -168,6 +171,7 @@ export interface AtualizarExecucaoPatch {
   totalFerramentas?: number;
   tokensEntrada?: number | null;
   tokensSaida?: number | null;
+  ultimoHeartbeatEm?: string | null;
 }
 
 export async function atualizarExecucao(id: string, patch: AtualizarExecucaoPatch): Promise<void> {
@@ -184,8 +188,27 @@ export async function atualizarExecucao(id: string, patch: AtualizarExecucaoPatc
   if (patch.totalFerramentas !== undefined) payload.total_ferramentas = patch.totalFerramentas;
   if (patch.tokensEntrada !== undefined) payload.tokens_entrada = patch.tokensEntrada;
   if (patch.tokensSaida !== undefined) payload.tokens_saida = patch.tokensSaida;
+  if (patch.ultimoHeartbeatEm !== undefined) payload.ultimo_heartbeat_em = patch.ultimoHeartbeatEm;
   if (Object.keys(payload).length === 0) return;
 
   const { error } = await getSupabaseAdmin().from("neo_execucoes").update(payload).eq("id", id);
   if (error) throw error;
+}
+
+/**
+ * Most recent execution for a conversation, regardless of status — used by
+ * reconciliation to notice a terminal execução whose linked mensagem row
+ * never got synced (e.g. the orchestrator process died before it could run
+ * finishWithAnswer/failExecution), not just currently-active ones.
+ */
+export async function buscarUltimaExecucaoPorConversa(conversaId: string): Promise<NeoExecucaoRow | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("neo_execucoes")
+    .select(SELECT_COLUMNS)
+    .eq("conversa_id", conversaId)
+    .order("iniciado_em", { ascending: false })
+    .limit(1)
+    .maybeSingle<ExecucaoDbRow>();
+  if (error || !data) return null;
+  return mapExecucao(data);
 }

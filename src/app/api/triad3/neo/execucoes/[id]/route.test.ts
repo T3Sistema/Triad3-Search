@@ -48,6 +48,7 @@ describe("GET /api/triad3/neo/execucoes/[id]", () => {
       totalFerramentas: 1,
       tokensEntrada: 10,
       tokensSaida: 10,
+      ultimoHeartbeatEm: null,
     });
     vi.mocked(etapasRepo.listarEtapas).mockResolvedValue([
       {

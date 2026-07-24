@@ -76,6 +76,18 @@ export const neoEventoFalhouSchema = z.object({
   mensagem: z.string(),
 });
 
+/**
+ * Sent every NEO_LIMITS.heartbeatIntervalMs while an execution is running,
+ * independent of tool activity — the client uses this (or any other event)
+ * to know the stream is still alive and to detect a stalled connection that
+ * never produced a terminal event (see the watchdog in use-neo-stream.ts).
+ */
+export const neoEventoHeartbeatSchema = z.object({
+  tipo: z.literal("heartbeat"),
+  execucaoId: z.string(),
+  decorridoMs: z.number(),
+});
+
 export const neoEventSchema = z.discriminatedUnion("tipo", [
   neoEventoIniciadaSchema,
   neoEventoPlanoProntoSchema,
@@ -88,6 +100,7 @@ export const neoEventSchema = z.discriminatedUnion("tipo", [
   neoEventoParcialSchema,
   neoEventoCanceladaSchema,
   neoEventoFalhouSchema,
+  neoEventoHeartbeatSchema,
 ]);
 
 export type NeoEvent = z.infer<typeof neoEventSchema>;
