@@ -1,0 +1,889 @@
+/*
+ * Ported from the "liquid glass" login mockup. Scoped entirely under
+ * .scene (CSS Modules hash every class below) so nothing here can leak
+ * into the rest of the app — no bare element/`*` selectors, no `:root`.
+ * Keyframe names are prefixed (`login*`) since @keyframes are not scoped
+ * by CSS Modules the way classes are.
+ */
+
+.scene {
+  --bg: #dbe2e9;
+  --ink: #061944;
+  --muted: #4b648e;
+  --blue: #0668ff;
+  --blue-deep: #064ee7;
+  --blue-soft: #79b7ff;
+  --success: #18b96b;
+  --danger: #c9324b;
+  --mx: 50%;
+  --my: 18%;
+
+  isolation: isolate;
+  position: relative;
+  min-height: 100svh;
+  min-width: 320px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at var(--mx) var(--my), rgba(255, 255, 255, 0.98) 0 4%, rgba(255, 255, 255, 0) 26%),
+    radial-gradient(circle at 8% 82%, rgba(90, 168, 255, 0.26), transparent 27%),
+    radial-gradient(circle at 91% 11%, rgba(255, 255, 255, 0.88), transparent 30%),
+    linear-gradient(130deg, #cbd8e6 0%, var(--bg) 42%, #edf4fb 100%);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.scene button,
+.scene input {
+  font: inherit;
+}
+
+.scene button,
+.scene a,
+.scene input,
+.scene label {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scene button {
+  color: inherit;
+}
+
+.scene::before {
+  position: absolute;
+  z-index: -5;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0) 0 63%, rgba(255, 255, 255, 0.42) 63.1% 63.25%, rgba(255, 255, 255, 0) 63.4%),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.34));
+  content: "";
+}
+
+.network {
+  position: absolute;
+  z-index: -4;
+  inset: -4%;
+  width: 108%;
+  height: 108%;
+  filter: drop-shadow(0 0 10px rgba(25, 112, 255, 0.15));
+  opacity: 0.66;
+  pointer-events: none;
+}
+
+.line {
+  stroke: url(#loginLineGradient);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.pulseLine {
+  stroke: rgba(0, 99, 255, 0.58);
+  stroke-dasharray: 4 16;
+  stroke-width: 1.15;
+  vector-effect: non-scaling-stroke;
+  animation: loginDash 13s linear infinite;
+}
+
+.node {
+  fill: url(#loginNodeGradient);
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 1.8;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: loginNodeBreathe 4.8s ease-in-out infinite alternate;
+}
+
+.node:nth-of-type(3n) {
+  animation-delay: -1.7s;
+}
+
+.node:nth-of-type(4n) {
+  animation-delay: -3.1s;
+}
+
+.orb {
+  position: absolute;
+  z-index: -2;
+  top: 8%;
+  left: 21%;
+  width: min(48vw, 720px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 26%, rgba(255, 255, 255, 0.9), transparent 12%),
+    radial-gradient(circle at 72% 70%, rgba(33, 125, 255, 0.23), transparent 31%),
+    radial-gradient(circle at 44% 50%, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.38) 70%, rgba(255, 255, 255, 0.8) 100%);
+  box-shadow:
+    inset 22px 14px 44px rgba(255, 255, 255, 0.82),
+    inset -18px -20px 58px rgba(20, 105, 228, 0.16),
+    0 34px 85px rgba(25, 70, 132, 0.16),
+    0 0 0 8px rgba(255, 255, 255, 0.13);
+  backdrop-filter: blur(7px) saturate(1.35);
+  transform: translate3d(0, 0, 0);
+  animation: loginOrbFloat 9s ease-in-out infinite;
+}
+
+.orb::before,
+.orb::after {
+  position: absolute;
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+}
+
+.orb::before {
+  inset: 3.2%;
+  border-top: 4px solid rgba(255, 255, 255, 0.74);
+  border-left: 1px solid rgba(255, 255, 255, 0.42);
+  filter: blur(0.3px);
+  transform: rotate(-19deg);
+}
+
+.orb::after {
+  inset: 13%;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 26px, rgba(43, 111, 214, 0.08) 27px 28px),
+    repeating-linear-gradient(0deg, transparent 0 26px, rgba(43, 111, 214, 0.07) 27px 28px);
+  mask-image: radial-gradient(circle, #000 14%, transparent 69%);
+  opacity: 0.55;
+}
+
+.horizon {
+  position: absolute;
+  z-index: -3;
+  right: -12%;
+  bottom: -30%;
+  left: -12%;
+  height: 62%;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 85px, rgba(59, 124, 207, 0.14) 86px 87px),
+    repeating-linear-gradient(0deg, transparent 0 62px, rgba(59, 124, 207, 0.12) 63px 64px);
+  mask-image: linear-gradient(to bottom, transparent, #000 50%);
+  perspective: 600px;
+  transform: rotateX(66deg);
+  transform-origin: 50% 0;
+  pointer-events: none;
+}
+
+.layout {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.96fr) minmax(410px, 0.72fr);
+  align-items: center;
+  gap: clamp(34px, 7vw, 118px);
+  width: min(1390px, calc(100% - 72px));
+  min-height: 100svh;
+  margin-inline: auto;
+  padding: 54px 0;
+}
+
+.intro {
+  align-self: end;
+  max-width: 560px;
+  margin-bottom: clamp(38px, 9vh, 116px);
+  padding-left: clamp(0px, 2vw, 28px);
+  animation: loginRevealUp 0.8s 0.08s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 19px;
+  color: #27588e;
+  font-size: 0.75rem;
+  font-weight: 760;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.eyebrow::before {
+  width: 28px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--blue), transparent);
+  content: "";
+}
+
+.introTitle {
+  max-width: 540px;
+  margin: 0;
+  color: #061944;
+  font-size: clamp(3.1rem, 5vw, 5.45rem);
+  font-weight: 500;
+  letter-spacing: -0.066em;
+  line-height: 0.92;
+  text-wrap: balance;
+}
+
+.introTitle span {
+  display: block;
+  background: linear-gradient(112deg, #061944 4%, #0d347a 64%, #0872ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.introText {
+  max-width: 490px;
+  margin: 27px 0 0;
+  color: #385984;
+  font-size: clamp(1.02rem, 1.42vw, 1.28rem);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.loginShell {
+  position: relative;
+  justify-self: end;
+  width: min(100%, 535px);
+  perspective: 1200px;
+  animation: loginRevealCard 0.95s 0.12s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.loginShell::before {
+  position: absolute;
+  z-index: -1;
+  inset: 8% -7% -6%;
+  border-radius: 54px;
+  background: rgba(45, 118, 226, 0.23);
+  filter: blur(52px);
+  content: "";
+  opacity: 0.58;
+}
+
+.glassCard {
+  --rx: 0deg;
+  --ry: 0deg;
+  position: relative;
+  overflow: hidden;
+  min-height: 680px;
+  padding: clamp(38px, 4.6vw, 60px) clamp(30px, 4.4vw, 57px) 34px;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 52px;
+  background:
+    radial-gradient(circle at 22% 6%, rgba(255, 255, 255, 0.98), transparent 28%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(240, 248, 255, 0.52) 46%, rgba(198, 219, 244, 0.5));
+  box-shadow:
+    inset 0 0 0 2px rgba(80, 150, 248, 0.18),
+    inset 0 1px 0 3px rgba(255, 255, 255, 0.76),
+    inset 18px 16px 34px rgba(255, 255, 255, 0.38),
+    inset -18px -20px 42px rgba(66, 123, 201, 0.13),
+    0 42px 82px rgba(30, 77, 137, 0.18),
+    0 10px 26px rgba(28, 86, 171, 0.11);
+  backdrop-filter: blur(34px) saturate(1.7);
+  -webkit-backdrop-filter: blur(34px) saturate(1.7);
+  transform: rotateX(var(--rx)) rotateY(var(--ry));
+  transform-style: preserve-3d;
+  transition: transform 280ms ease, box-shadow 280ms ease;
+}
+
+.glassCard::before {
+  position: absolute;
+  top: -46%;
+  left: -30%;
+  width: 62%;
+  height: 145%;
+  background: linear-gradient(92deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+  content: "";
+  pointer-events: none;
+  transform: rotate(22deg);
+  animation: loginGlassShine 9s 1.4s ease-in-out infinite;
+}
+
+.glassCard::after {
+  position: absolute;
+  z-index: -1;
+  inset: 11px;
+  border: 1px solid rgba(91, 154, 241, 0.14);
+  border-radius: 42px;
+  content: "";
+  pointer-events: none;
+}
+
+.brand {
+  display: flex;
+  justify-content: center;
+  min-height: 117px;
+}
+
+.brand img {
+  display: block;
+  width: auto;
+  height: 118px;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 18px rgba(7, 66, 153, 0.12));
+}
+
+.loginTitle {
+  margin: 10px 0 26px;
+  color: var(--ink);
+  font-size: clamp(1.8rem, 3vw, 2.12rem);
+  font-weight: 720;
+  letter-spacing: -0.042em;
+  text-align: center;
+}
+
+.field {
+  position: relative;
+  margin-top: 15px;
+}
+
+.field label {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 22px;
+  color: #4e6790;
+  font-size: 1rem;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  transition: top 180ms ease, transform 180ms ease, color 180ms ease;
+}
+
+.field input {
+  width: 100%;
+  height: 68px;
+  padding: 20px 56px 8px 21px;
+  border: 1px solid rgba(255, 255, 255, 0.96);
+  border-radius: 19px;
+  outline: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(242, 248, 255, 0.55));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    inset 0 -1px 0 rgba(71, 134, 226, 0.09),
+    0 8px 25px rgba(54, 92, 145, 0.08);
+  color: var(--ink);
+  caret-color: var(--blue);
+  font-size: 1rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.field input:focus,
+.field input:not(:placeholder-shown) {
+  padding-top: 28px;
+}
+
+.field input:focus + label,
+.field input:not(:placeholder-shown) + label {
+  top: 12px;
+  color: var(--blue-deep);
+  font-size: 0.72rem;
+  font-weight: 700;
+  transform: translateY(0);
+}
+
+.field input:focus {
+  border-color: rgba(0, 103, 255, 0.78);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 0 0 3px rgba(0, 103, 255, 0.16),
+    0 12px 28px rgba(0, 90, 220, 0.1),
+    inset 0 1px 0 #fff;
+}
+
+.fieldInvalid input {
+  border-color: rgba(201, 50, 75, 0.62);
+  box-shadow: 0 0 0 3px rgba(201, 50, 75, 0.09);
+}
+
+.passwordToggle {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 14px;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  color: #56709a;
+  cursor: pointer;
+  place-items: center;
+  transform: translateY(-50%);
+  transition: color 160ms ease, background 160ms ease;
+}
+
+.passwordToggle:hover {
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--blue);
+}
+
+.passwordToggle svg {
+  width: 22px;
+  height: 22px;
+}
+
+.formOptions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 20px 2px 25px;
+  color: #385a86;
+  font-size: 0.9rem;
+}
+
+.remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.remember input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.checkmark {
+  position: relative;
+  display: grid;
+  width: 21px;
+  height: 21px;
+  border: 1px solid rgba(55, 94, 148, 0.54);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.37);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  place-items: center;
+  transition: 160ms ease;
+}
+
+.checkmark::after {
+  width: 8px;
+  height: 4px;
+  border-bottom: 2px solid #fff;
+  border-left: 2px solid #fff;
+  content: "";
+  opacity: 0;
+  transform: translateY(-1px) rotate(-45deg) scale(0.45);
+  transition: 160ms ease;
+}
+
+.remember input:checked + .checkmark {
+  border-color: var(--blue);
+  background: linear-gradient(135deg, #1682ff, #0558eb);
+  box-shadow: 0 5px 14px rgba(0, 99, 255, 0.25);
+}
+
+.remember input:checked + .checkmark::after {
+  opacity: 1;
+  transform: translateY(-1px) rotate(-45deg) scale(1);
+}
+
+.remember input:focus-visible + .checkmark,
+.forgot:focus-visible,
+.passwordToggle:focus-visible,
+.submit:focus-visible {
+  outline: 3px solid rgba(0, 103, 255, 0.28);
+  outline-offset: 3px;
+}
+
+.forgot {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #315d98;
+  cursor: pointer;
+  font-size: inherit;
+  text-decoration: none;
+}
+
+.forgot:hover {
+  color: var(--blue);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.submit {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 68px;
+  overflow: hidden;
+  padding: 0 30px;
+  border: 1px solid rgba(255, 255, 255, 0.96);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% -20%, rgba(97, 181, 255, 0.9), transparent 43%),
+    linear-gradient(110deg, #087dff, #075cf0 53%, #0649d8);
+  box-shadow:
+    inset 0 1px 0 2px rgba(255, 255, 255, 0.42),
+    inset 0 -7px 16px rgba(0, 36, 159, 0.23),
+    0 16px 25px rgba(0, 82, 226, 0.26),
+    0 0 0 2px rgba(32, 126, 255, 0.56);
+  color: #fff;
+  cursor: pointer;
+  font-size: 1.08rem;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+  place-items: center;
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.submit::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 34%, rgba(255, 255, 255, 0.34) 48%, transparent 62%);
+  content: "";
+  transform: translateX(-120%);
+  transition: transform 620ms ease;
+}
+
+.submit:hover {
+  box-shadow:
+    inset 0 1px 0 2px rgba(255, 255, 255, 0.48),
+    inset 0 -7px 16px rgba(0, 36, 159, 0.22),
+    0 20px 34px rgba(0, 82, 226, 0.32),
+    0 0 0 3px rgba(32, 126, 255, 0.42);
+  filter: saturate(1.08);
+  transform: translateY(-2px);
+}
+
+.submit:hover::before {
+  transform: translateX(120%);
+}
+
+.submit:active {
+  transform: translateY(0) scale(0.992);
+}
+
+.submit[aria-busy="true"] {
+  cursor: wait;
+}
+
+.submitContent {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.arrow {
+  width: 21px;
+  height: 21px;
+  transition: transform 180ms ease;
+}
+
+.submit:hover .arrow {
+  transform: translateX(4px);
+}
+
+.spinner {
+  display: none;
+  width: 21px;
+  height: 21px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: loginSpin 0.75s linear infinite;
+}
+
+.submit[aria-busy="true"] .spinner {
+  display: block;
+}
+
+.submit[aria-busy="true"] .arrow {
+  display: none;
+}
+
+.status {
+  min-height: 21px;
+  margin: 13px 0 -1px;
+  color: #3f5d86;
+  font-size: 0.79rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.statusError {
+  color: var(--danger);
+}
+
+.secure {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 11px;
+  color: #214b7e;
+  font-size: 0.88rem;
+}
+
+.secureDot {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 4px rgba(24, 185, 107, 0.1), 0 0 12px rgba(24, 185, 107, 0.4);
+}
+
+.secureDot::after {
+  position: absolute;
+  inset: -5px;
+  border: 1px solid rgba(24, 185, 107, 0.35);
+  border-radius: inherit;
+  content: "";
+  animation: loginSecurePing 2.2s ease-out infinite;
+}
+
+@keyframes loginDash {
+  to {
+    stroke-dashoffset: -200;
+  }
+}
+
+@keyframes loginNodeBreathe {
+  to {
+    filter: drop-shadow(0 0 8px rgba(0, 105, 255, 0.7));
+    transform: scale(1.12);
+  }
+}
+
+@keyframes loginOrbFloat {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -14px;
+  }
+}
+
+@keyframes loginGlassShine {
+  0%,
+  72%,
+  100% {
+    transform: translateX(-18%) rotate(22deg);
+  }
+  86% {
+    transform: translateX(265%) rotate(22deg);
+  }
+}
+
+@keyframes loginRevealUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+
+@keyframes loginRevealCard {
+  from {
+    opacity: 0;
+    transform: translateY(32px) scale(0.97);
+  }
+}
+
+@keyframes loginSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes loginSecurePing {
+  from {
+    opacity: 0.6;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+@media (max-width: 1050px) {
+  .layout {
+    grid-template-columns: minmax(250px, 0.72fr) minmax(390px, 0.9fr);
+    gap: 36px;
+    width: min(980px, calc(100% - 44px));
+  }
+
+  .introTitle {
+    font-size: clamp(2.9rem, 6vw, 4.3rem);
+  }
+
+  .orb {
+    left: 7%;
+    width: min(62vw, 650px);
+  }
+}
+
+@media (max-width: 820px) {
+  .scene {
+    min-height: 100svh;
+  }
+
+  .layout {
+    display: flex;
+    width: min(100% - 30px, 560px);
+    min-height: 100svh;
+    padding: 28px 0 38px;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .intro {
+    align-self: stretch;
+    max-width: none;
+    margin: 0 0 23px;
+    padding: 0 12px;
+    text-align: center;
+  }
+
+  .eyebrow {
+    margin-bottom: 12px;
+  }
+
+  .introTitle {
+    max-width: none;
+    font-size: clamp(2.5rem, 11vw, 4rem);
+    line-height: 0.98;
+  }
+
+  .introTitle span {
+    display: inline;
+  }
+
+  .introText {
+    max-width: 470px;
+    margin: 16px auto 0;
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  .loginShell {
+    justify-self: auto;
+    width: 100%;
+  }
+
+  .glassCard {
+    min-height: 0;
+    padding: 36px 30px 29px;
+    border-radius: 42px;
+  }
+
+  .brand {
+    min-height: 95px;
+  }
+
+  .brand img {
+    height: 94px;
+  }
+
+  .loginTitle {
+    margin-top: 5px;
+  }
+
+  .orb {
+    top: 24%;
+    left: -30%;
+    width: 125vw;
+    max-width: 760px;
+    opacity: 0.72;
+  }
+}
+
+@media (max-width: 480px) {
+  .layout {
+    width: min(100% - 20px, 440px);
+    padding-top: 20px;
+  }
+
+  .intro {
+    margin-bottom: 17px;
+  }
+
+  .eyebrow {
+    display: none;
+  }
+
+  .introTitle {
+    font-size: clamp(2.28rem, 11.5vw, 3.25rem);
+  }
+
+  .introText {
+    font-size: 0.93rem;
+  }
+
+  .glassCard {
+    padding: 28px 20px 24px;
+    border-radius: 34px;
+  }
+
+  .glassCard::after {
+    inset: 8px;
+    border-radius: 27px;
+  }
+
+  .brand {
+    min-height: 78px;
+  }
+
+  .brand img {
+    height: 79px;
+  }
+
+  .loginTitle {
+    margin: 4px 0 20px;
+    font-size: 1.66rem;
+  }
+
+  .field input,
+  .submit {
+    height: 62px;
+  }
+
+  .formOptions {
+    align-items: flex-start;
+    margin: 18px 2px 22px;
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-height: 720px) and (min-width: 821px) {
+  .layout {
+    padding-block: 24px;
+  }
+
+  .glassCard {
+    min-height: 0;
+    padding-top: 30px;
+    padding-bottom: 25px;
+  }
+
+  .brand,
+  .brand img {
+    height: 90px;
+    min-height: 90px;
+  }
+
+  .loginTitle {
+    margin: 5px 0 20px;
+  }
+
+  .field input,
+  .submit {
+    height: 61px;
+  }
+
+  .formOptions {
+    margin-block: 17px 21px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

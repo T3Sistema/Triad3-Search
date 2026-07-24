@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 
+// Routes that render their own full-bleed layout, without the sidebar/topbar chrome.
+const BARE_ROUTES = new Set(["/login"]);
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const pathname = usePathname();
@@ -13,6 +16,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (pathname !== prevPathname) {
     setPrevPathname(pathname);
     setMobileOpen(false);
+  }
+
+  if (BARE_ROUTES.has(pathname)) {
+    return <>{children}</>;
   }
 
   return (
