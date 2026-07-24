@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { FetchConfig, FetchMode } from "@/lib/scrapegraph/formats";
+import type { FetchConfig, FetchMode } from "@/lib/integration/formats";
 import { validateJson } from "@/lib/json-utils";
 
 export interface FetchConfigFormValue {
@@ -148,8 +148,8 @@ export function FetchConfigAccordion({ value, onChange, idPrefix }: FetchConfigA
           <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning-bg p-2.5 text-xs text-warning">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <p>
-              Headers e cookies informados abaixo são enviados ao provedor externo (ScrapeGraphAI) junto da
-              requisição. Nunca são salvos no navegador nem aparecem em logs.
+              Headers e cookies informados abaixo são enviados ao serviço externo junto da requisição.
+              Nunca são salvos no navegador nem aparecem em logs.
             </p>
           </div>
 

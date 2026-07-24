@@ -34,6 +34,8 @@ import { JsonTree } from "@/components/viewer/json-tree";
 import { LoadingView } from "@/components/viewer/loading-view";
 import { ErrorView } from "@/components/viewer/error-view";
 import { EmptyState } from "@/components/viewer/empty-state";
+import { formatDateTime, formatMilliseconds } from "@/lib/ui/formatting";
+import { toneForStatus, translateStatus } from "@/lib/ui/status-labels";
 import {
   useDeleteMonitorMutation,
   useMonitorActivity,
@@ -163,7 +165,7 @@ export function MonitorDetailPage({ id }: { id: string }) {
           <dl className="space-y-1 text-sm">
             <div className="flex gap-2">
               <dt className="text-text-secondary">Status</dt>
-              <dd><Badge variant={monitor?.status === "active" ? "success" : "warning"}>{monitor?.status}</Badge></dd>
+              <dd><Badge variant={toneForStatus(monitor?.status)}>{translateStatus(monitor?.status)}</Badge></dd>
             </div>
             <div className="flex gap-2">
               <dt className="text-text-secondary">Intervalo</dt>
@@ -171,7 +173,7 @@ export function MonitorDetailPage({ id }: { id: string }) {
             </div>
             <div className="flex gap-2">
               <dt className="text-text-secondary">Criado em</dt>
-              <dd>{monitor?.createdAt ? new Date(monitor.createdAt).toLocaleString("pt-BR") : "—"}</dd>
+              <dd>{formatDateTime(monitor?.createdAt)}</dd>
             </div>
           </dl>
           {monitor?.config !== undefined && <JsonTree data={monitor.config} />}
@@ -204,11 +206,11 @@ export function MonitorDetailPage({ id }: { id: string }) {
                       <XCircle className="h-4 w-4 text-error" />
                     )}
                     <span className="text-sm font-medium text-text-primary">
-                      {tick.createdAt ? new Date(tick.createdAt).toLocaleString("pt-BR") : "—"}
+                      {formatDateTime(tick.createdAt)}
                     </span>
-                    <Badge variant={tick.status === "completed" ? "success" : "error"}>{tick.status}</Badge>
+                    <Badge variant={toneForStatus(tick.status)}>{translateStatus(tick.status)}</Badge>
                     {typeof tick.elapsedMs === "number" && (
-                      <span className="text-xs text-text-secondary">{tick.elapsedMs.toLocaleString("pt-BR")} ms</span>
+                      <span className="text-xs text-text-secondary">{formatMilliseconds(tick.elapsedMs)}</span>
                     )}
                     {tick.changed !== undefined && (
                       <Badge variant={tick.changed ? "warning" : "neutral"}>{tick.changed ? "Mudança detectada" : "Sem mudanças"}</Badge>

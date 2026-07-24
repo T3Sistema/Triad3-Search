@@ -23,7 +23,7 @@ import { LoadingView } from "@/components/viewer/loading-view";
 import { EmptyState } from "@/components/viewer/empty-state";
 import { useScrapeMutation } from "@/hooks/use-scrape";
 import { isHttpUrl } from "@/lib/url";
-import type { ScrapeFormat } from "@/lib/scrapegraph/formats";
+import type { ScrapeFormat } from "@/lib/integration/formats";
 
 const formSchema = z.object({
   url: z.string().min(1, "Informe uma URL.").refine(isHttpUrl, "Informe uma URL pública válida (http ou https)."),
@@ -85,7 +85,7 @@ export function ScrapePage() {
         onSuccess: () => setResultTab("view"),
         onError: (error) => {
           if (error instanceof Error && error.name === "AbortError") return;
-          toast.error(error instanceof Error ? error.message : "Falha ao executar o scrape.");
+          toast.error(error instanceof Error ? error.message : "Falha ao executar a captura.");
         },
       },
     );
@@ -100,7 +100,7 @@ export function ScrapePage() {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,42%)_minmax(0,1fr)]">
       <Card>
         <CardHeader>
-          <CardTitle>Requisição — Scrape</CardTitle>
+          <CardTitle>Requisição — Capturar</CardTitle>
           <CardDescription>Captura uma página pública em um ou mais formatos.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -137,17 +137,17 @@ export function ScrapePage() {
       <Card>
         <CardHeader>
           <CardTitle>Resposta</CardTitle>
-          <CardDescription>Resultado da requisição enviada à ScrapeGraphAI.</CardDescription>
+          <CardDescription>Resultado da requisição enviada ao serviço.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {mutation.data && (
             <ResultToolbar
               requestId={mutation.data.id}
               status={mutation.data.status ?? "completed"}
-              endpoint="/api/scrape"
+              endpoint="/api/triad3/capturar"
               data={mutation.data}
               requestBody={requestBody}
-              filename={`scrape-${mutation.data.id ?? "resultado"}.json`}
+              filename={`captura-${mutation.data.id ?? "resultado"}.json`}
             />
           )}
 
@@ -180,7 +180,7 @@ export function ScrapePage() {
             </TabsContent>
 
             <TabsContent value="request">
-              <RequestPreview method="POST" internalEndpoint="/api/sgai/scrape" externalEndpoint="/scrape" body={requestBody} />
+              <RequestPreview method="POST" internalEndpoint="/api/triad3/capturar" body={requestBody} />
             </TabsContent>
           </Tabs>
         </CardContent>

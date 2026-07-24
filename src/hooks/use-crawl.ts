@@ -3,14 +3,14 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiDelete, apiGet, apiPost } from "@/lib/api-client";
 import { CREDITS_QUERY_KEY } from "@/hooks/use-credits";
-import type { CrawlPagesResponse, CrawlStatusResponse } from "@/lib/scrapegraph/types";
+import type { CrawlPagesResponse, CrawlStatusResponse } from "@/server/integrations/web-intelligence/types";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "stopped"]);
 
 export function useCreateCrawlMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: unknown) => apiPost<CrawlStatusResponse>("/api/sgai/crawl", payload),
+    mutationFn: (payload: unknown) => apiPost<CrawlStatusResponse>("/api/triad3/mapear", payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: CREDITS_QUERY_KEY }),
   });
 }
@@ -18,7 +18,7 @@ export function useCreateCrawlMutation() {
 export function useCrawlStatus(id: string | undefined) {
   return useQuery({
     queryKey: ["crawl", id],
-    queryFn: ({ signal }) => apiGet<CrawlStatusResponse>(`/api/sgai/crawl/${id}`, signal),
+    queryFn: ({ signal }) => apiGet<CrawlStatusResponse>(`/api/triad3/mapear/${id}`, signal),
     enabled: Boolean(id),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
@@ -34,7 +34,7 @@ export function useCrawlPages(id: string | undefined) {
     queryFn: ({ pageParam, signal }) => {
       const params = new URLSearchParams({ limit: "50" });
       if (pageParam) params.set("cursor", pageParam);
-      return apiGet<CrawlPagesResponse>(`/api/sgai/crawl/${id}/pages?${params.toString()}`, signal);
+      return apiGet<CrawlPagesResponse>(`/api/triad3/mapear/${id}/paginas?${params.toString()}`, signal);
     },
     initialPageParam: "" as string,
     getNextPageParam: (lastPage) => lastPage.pagination?.nextCursor ?? undefined,
@@ -45,7 +45,7 @@ export function useCrawlPages(id: string | undefined) {
 export function useStopCrawlMutation(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => apiPost<CrawlStatusResponse>(`/api/sgai/crawl/${id}/stop`, {}),
+    mutationFn: () => apiPost<CrawlStatusResponse>(`/api/triad3/mapear/${id}/interromper`, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crawl", id] }),
   });
 }
@@ -53,13 +53,13 @@ export function useStopCrawlMutation(id: string) {
 export function useResumeCrawlMutation(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => apiPost<CrawlStatusResponse>(`/api/sgai/crawl/${id}/resume`, {}),
+    mutationFn: () => apiPost<CrawlStatusResponse>(`/api/triad3/mapear/${id}/retomar`, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crawl", id] }),
   });
 }
 
 export function useDeleteCrawlMutation(id: string) {
   return useMutation({
-    mutationFn: () => apiDelete(`/api/sgai/crawl/${id}`),
+    mutationFn: () => apiDelete(`/api/triad3/mapear/${id}`),
   });
 }

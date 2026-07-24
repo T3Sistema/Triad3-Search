@@ -99,7 +99,7 @@ export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
           </nav>
 
           <div className="border-t border-border px-4 py-3 text-xs text-text-secondary">
-            API V2 · ScrapeGraphAI
+            Motor de inteligência conectado
           </div>
         </div>
       </aside>

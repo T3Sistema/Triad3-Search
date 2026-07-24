@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api-client";
-import type { HistoryItem, HistoryListResponse } from "@/lib/scrapegraph/types";
+import type { HistoryItem, HistoryListResponse } from "@/server/integrations/web-intelligence/types";
 
 export interface HistoryFilters {
   page: number;
@@ -18,14 +18,14 @@ export function useHistoryList(filters: HistoryFilters) {
 
   return useQuery({
     queryKey: ["history", filters],
-    queryFn: ({ signal }) => apiGet<HistoryListResponse>(`/api/sgai/history?${params.toString()}`, signal),
+    queryFn: ({ signal }) => apiGet<HistoryListResponse>(`/api/triad3/historico?${params.toString()}`, signal),
   });
 }
 
 export function useHistoryDetail(id: string | undefined) {
   return useQuery({
     queryKey: ["history-item", id],
-    queryFn: ({ signal }) => apiGet<HistoryItem>(`/api/sgai/history/${id}`, signal),
+    queryFn: ({ signal }) => apiGet<HistoryItem>(`/api/triad3/historico/${id}`, signal),
     enabled: Boolean(id),
   });
 }

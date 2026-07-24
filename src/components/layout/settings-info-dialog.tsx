@@ -26,29 +26,22 @@ export function SettingsInfoDialog() {
         <DialogHeader>
           <DialogTitle>Configurações</DialogTitle>
           <DialogDescription>
-            Informações sobre a conexão com a API. Não é possível informar uma chave por aqui — a
-            chave da ScrapeGraphAI vive apenas no servidor.
+            Informações sobre a conexão com o serviço. Não é possível informar uma chave por aqui — a
+            configuração da integração vive apenas no servidor.
           </DialogDescription>
         </DialogHeader>
 
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-          <dt className="text-text-secondary">Base URL</dt>
-          <dd className="font-mono text-text-primary">https://v2-api.scrapegraphai.com</dd>
-
-          <dt className="text-text-secondary">Prefixo</dt>
-          <dd className="font-mono text-text-primary">/api</dd>
-
           <dt className="text-text-secondary">Autenticação</dt>
-          <dd className="text-text-primary">Header SGAI-APIKEY, aplicado apenas no backend</dd>
+          <dd className="text-text-primary">Aplicada apenas no backend</dd>
 
           <dt className="text-text-secondary">Plano</dt>
           <dd className="text-text-primary">{credits?.plan ?? "—"}</dd>
         </dl>
 
         <p className="rounded-lg border border-border bg-slate-50 p-3 text-xs text-text-secondary">
-          Para alterar a chave de API, configure a variável de ambiente <code className="font-mono">SGAI_API_KEY</code>{" "}
-          no servidor (ou nas variáveis de ambiente do projeto na Vercel) e faça um novo deploy. Ela nunca é
-          exposta ao navegador.
+          Para alterar a integração, atualize as variáveis de ambiente do servidor (ou nas variáveis de
+          ambiente do projeto na Vercel) e faça um novo deploy. Elas nunca são expostas ao navegador.
         </p>
       </DialogContent>
     </Dialog>

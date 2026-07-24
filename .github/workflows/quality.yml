@@ -1,0 +1,45 @@
+name: Qualidade
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Instalação limpa
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Testes
+        run: npm run test
+
+      - name: Política de frontend (código-fonte)
+        run: npm run check:ui-policy
+
+      - name: Build de produção
+        run: npm run build
+        env:
+          # Chave fictícia apenas para permitir que as rotas sejam
+          # coletadas durante o build de CI — nenhuma chamada real é feita.
+          SGAI_API_KEY: ci-placeholder-key
+
+      - name: Política de frontend (bundle estático)
+        run: npm run check:ui-policy:static

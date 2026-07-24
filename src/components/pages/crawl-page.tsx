@@ -22,7 +22,7 @@ import { RequestPreview } from "@/components/playground/request-preview";
 import { useCreateCrawlMutation } from "@/hooks/use-crawl";
 import { isHttpUrl } from "@/lib/url";
 import { pushRecentItem, useRecentItemsSnapshot } from "@/lib/recent-items";
-import type { ScrapeFormat } from "@/lib/scrapegraph/formats";
+import type { ScrapeFormat } from "@/lib/integration/formats";
 import Link from "next/link";
 
 const RECENT_CRAWLS_KEY = "recent-crawls";
@@ -76,11 +76,11 @@ export function CrawlPage() {
       onSuccess: (data) => {
         if (data.id) {
           pushRecentItem(RECENT_CRAWLS_KEY, { id: data.id, label: url, createdAt: new Date().toISOString() });
-          toast.success("Crawl iniciado. Acompanhando progresso…");
+          toast.success("Mapeamento iniciado. Acompanhando progresso…");
           router.push(`/crawl/${data.id}`);
         }
       },
-      onError: (error) => toast.error(error instanceof Error ? error.message : "Falha ao iniciar o crawl."),
+      onError: (error) => toast.error(error instanceof Error ? error.message : "Falha ao iniciar o mapeamento."),
     });
   };
 
@@ -88,7 +88,7 @@ export function CrawlPage() {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,42%)_minmax(0,1fr)]">
       <Card>
         <CardHeader>
-          <CardTitle>Requisição — Crawl</CardTitle>
+          <CardTitle>Requisição — Mapear site</CardTitle>
           <CardDescription>Rastreia múltiplas páginas a partir de uma URL inicial.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -143,7 +143,7 @@ export function CrawlPage() {
             <FetchConfigAccordion value={fetchConfig} onChange={setFetchConfig} idPrefix="crawl" />
 
             <Button type="submit" disabled={mutation.isPending} className="w-full">
-              {mutation.isPending ? "Iniciando…" : <><Play className="h-4 w-4" /> Iniciar crawl</>}
+              {mutation.isPending ? "Iniciando…" : <><Play className="h-4 w-4" /> Iniciar mapeamento</>}
             </Button>
           </form>
         </CardContent>
@@ -161,7 +161,7 @@ export function CrawlPage() {
                 <TabsTrigger value="request">Requisição</TabsTrigger>
               </TabsList>
               <TabsContent value="request">
-                <RequestPreview method="POST" internalEndpoint="/api/sgai/crawl" externalEndpoint="/crawl" body={requestBody} />
+                <RequestPreview method="POST" internalEndpoint="/api/triad3/mapear" body={requestBody} />
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -170,7 +170,7 @@ export function CrawlPage() {
         {recentCrawls.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Crawls recentes</CardTitle>
+              <CardTitle>Mapeamentos recentes</CardTitle>
               <CardDescription>Guardados apenas neste navegador.</CardDescription>
             </CardHeader>
             <CardContent>

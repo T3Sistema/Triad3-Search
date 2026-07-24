@@ -1,7 +1,7 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
-import type { SearchResultItem } from "@/lib/scrapegraph/types";
+import type { SearchResultItem } from "@/server/integrations/web-intelligence/types";
 
 export function SearchResultsView({ results }: { results: SearchResultItem[] }) {
   if (!results || results.length === 0) {

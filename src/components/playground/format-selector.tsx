@@ -14,7 +14,7 @@ import {
   type FormatType,
   type MarkdownHtmlMode,
   type ScrapeFormat,
-} from "@/lib/scrapegraph/formats";
+} from "@/lib/integration/formats";
 import { cn } from "@/lib/utils";
 
 const FORMAT_LABELS: Record<FormatType, string> = {
@@ -198,8 +198,8 @@ export function FormatSelector({ value, onChange, availableTypes = FORMAT_TYPES 
 
 const MODE_LABELS: Record<MarkdownHtmlMode, string> = {
   normal: "Normal",
-  reader: "Reader",
-  prune: "Prune",
+  reader: "Modo leitura",
+  prune: "Modo reduzido",
 };
 
 function defaultFormatFor(type: FormatType): ScrapeFormat {

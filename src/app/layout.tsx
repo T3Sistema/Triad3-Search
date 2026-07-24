@@ -19,7 +19,7 @@ const appName = process.env.NEXT_PUBLIC_APP_NAME || "Triad3 Search";
 
 export const metadata: Metadata = {
   title: appName,
-  description: "Painel de operações da API V2 da ScrapeGraphAI, com identidade própria Triad3 Search.",
+  description: "Painel de operações do Triad3 Search: capture, extraia, pesquise, mapeie e monitore páginas da web.",
 };
 
 export default function RootLayout({

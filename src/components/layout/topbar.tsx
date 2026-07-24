@@ -32,9 +32,11 @@ export function Topbar({ onOpenMobileMenu }: TopbarProps) {
           <Menu className="h-5 w-5" />
         </Button>
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className="truncate text-lg font-semibold text-text-primary">{activeItem?.label ?? "Triad3 Search"}</h1>
-            <Badge variant="default">API V2</Badge>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="min-w-0 truncate text-lg font-semibold text-text-primary">{activeItem?.label ?? "Triad3 Search"}</h1>
+            <Badge variant="default" className="hidden shrink-0 sm:inline-flex">
+              Motor de inteligência
+            </Badge>
           </div>
           <p className="hidden truncate text-xs text-text-secondary sm:block">{activeItem?.description}</p>
         </div>

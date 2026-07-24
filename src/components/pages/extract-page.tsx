@@ -27,7 +27,7 @@ import { LoadingView } from "@/components/viewer/loading-view";
 import { EmptyState } from "@/components/viewer/empty-state";
 import { useExtractMutation } from "@/hooks/use-extract";
 import { isHttpUrl } from "@/lib/url";
-import type { MarkdownHtmlMode } from "@/lib/scrapegraph/formats";
+import type { MarkdownHtmlMode } from "@/lib/integration/formats";
 
 type SourceType = "url" | "html" | "markdown";
 const MAX_RAW_LENGTH = 2 * 1024 * 1024;
@@ -124,7 +124,7 @@ export function ExtractPage() {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,42%)_minmax(0,1fr)]">
       <Card>
         <CardHeader>
-          <CardTitle>Requisição — Extract</CardTitle>
+          <CardTitle>Requisição — Extrair</CardTitle>
           <CardDescription>Extração estruturada guiada por prompt, a partir de uma única fonte.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -205,8 +205,8 @@ export function ExtractPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="reader">Reader</SelectItem>
-                  <SelectItem value="prune">Prune</SelectItem>
+                  <SelectItem value="reader">Modo leitura</SelectItem>
+                  <SelectItem value="prune">Modo reduzido</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -232,25 +232,25 @@ export function ExtractPage() {
       <Card>
         <CardHeader>
           <CardTitle>Resposta</CardTitle>
-          <CardDescription>Resultado estruturado retornado pela ScrapeGraphAI.</CardDescription>
+          <CardDescription>Resultado estruturado retornado pelo serviço.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {mutation.data && (
             <ResultToolbar
               requestId={mutation.data.id}
               status="completed"
-              endpoint="/api/extract"
+              endpoint="/api/triad3/extrair"
               data={mutation.data}
               requestBody={requestBody}
-              filename={`extract-${mutation.data.id ?? "resultado"}.json`}
+              filename={`extracao-${mutation.data.id ?? "resultado"}.json`}
             />
           )}
 
           <Tabs value={resultTab} onValueChange={setResultTab}>
             <TabsList className="flex-wrap h-auto">
               <TabsTrigger value="structured">Resultado</TabsTrigger>
-              <TabsTrigger value="raw">Raw</TabsTrigger>
-              <TabsTrigger value="usage">Tokens</TabsTrigger>
+              <TabsTrigger value="raw">Conteúdo bruto</TabsTrigger>
+              <TabsTrigger value="usage">Uso de tokens</TabsTrigger>
               <TabsTrigger value="metadata">Metadados</TabsTrigger>
               <TabsTrigger value="json">JSON</TabsTrigger>
               <TabsTrigger value="request">Requisição</TabsTrigger>
@@ -302,7 +302,7 @@ export function ExtractPage() {
             <TabsContent value="json">{mutation.data ? <JsonCode data={mutation.data} /> : <EmptyState />}</TabsContent>
 
             <TabsContent value="request">
-              <RequestPreview method="POST" internalEndpoint="/api/sgai/extract" externalEndpoint="/extract" body={requestBody} />
+              <RequestPreview method="POST" internalEndpoint="/api/triad3/extrair" body={requestBody} />
             </TabsContent>
           </Tabs>
         </CardContent>
