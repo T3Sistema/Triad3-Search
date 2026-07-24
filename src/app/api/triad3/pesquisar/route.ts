@@ -1,8 +1,6 @@
-import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
 import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { searchRequestSchema } from "@/lib/integration/schemas";
-import { pruneFetchConfig } from "@/lib/integration/formats";
-import type { SearchResponse } from "@/server/integrations/web-intelligence/types";
+import { pesquisarWeb } from "@/server/services/pesquisar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,20 +21,7 @@ export async function POST(request: Request) {
     return validationErrorResponse("Confira os campos enviados.", parsed.error.issues);
   }
 
-  const { query, numResults, format, timeRange, locationGeoCode, prompt, schema, fetchConfig } = parsed.data;
-  const prunedFetchConfig = pruneFetchConfig(fetchConfig);
-  const payload = {
-    query,
-    ...(numResults ? { numResults } : {}),
-    ...(format ? { format } : {}),
-    ...(timeRange ? { timeRange } : {}),
-    ...(locationGeoCode ? { locationGeoCode } : {}),
-    ...(prompt ? { prompt } : {}),
-    ...(prompt && schema ? { schema } : {}),
-    ...(prunedFetchConfig ? { fetchConfig: prunedFetchConfig } : {}),
-  };
-
-  const result = await sgaiRequest<SearchResponse>("POST", "/search", { body: payload });
+  const result = await pesquisarWeb(parsed.data);
   if (!result.ok) return jsonError(result.error);
   return jsonOk(result.data);
 }

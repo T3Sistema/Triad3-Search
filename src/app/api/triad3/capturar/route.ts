@@ -1,8 +1,6 @@
-import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
 import { jsonError, jsonOk, readJsonBody, rejectUntrustedOrigin, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
 import { scrapeRequestSchema } from "@/lib/integration/schemas";
-import { pruneFetchConfig } from "@/lib/integration/formats";
-import type { ScrapeResponse } from "@/server/integrations/web-intelligence/types";
+import { capturarPagina } from "@/server/services/capturar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,15 +21,7 @@ export async function POST(request: Request) {
     return validationErrorResponse("Confira os campos enviados.", parsed.error.issues);
   }
 
-  const { url, contentType, formats, fetchConfig } = parsed.data;
-  const payload = {
-    url,
-    ...(contentType ? { contentType } : {}),
-    formats,
-    ...(pruneFetchConfig(fetchConfig) ? { fetchConfig: pruneFetchConfig(fetchConfig) } : {}),
-  };
-
-  const result = await sgaiRequest<ScrapeResponse>("POST", "/scrape", { body: payload });
+  const result = await capturarPagina(parsed.data);
   if (!result.ok) return jsonError(result.error);
   return jsonOk(result.data);
 }

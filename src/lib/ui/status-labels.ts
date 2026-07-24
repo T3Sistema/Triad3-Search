@@ -62,3 +62,86 @@ export function translateService(service?: string | null): string {
   if (!service) return "—";
   return SERVICE_LABELS[service.toLowerCase()] ?? service;
 }
+
+// --- Neo -------------------------------------------------------------------
+
+export const NEO_EXECUCAO_STATUS_LABELS: Record<string, string> = {
+  planejando: "Planejando",
+  executando: "Investigando",
+  verificando: "Verificando",
+  sintetizando: "Preparando relatório",
+  aguardando_confirmacao: "Aguardando confirmação",
+  concluida: "Concluída",
+  parcial: "Parcial",
+  falhou: "Falhou",
+  cancelada: "Cancelada",
+};
+
+export function translateNeoExecucaoStatus(status?: string | null): string {
+  if (!status) return "—";
+  return NEO_EXECUCAO_STATUS_LABELS[status.toLowerCase()] ?? status;
+}
+
+export const NEO_MENSAGEM_STATUS_LABELS: Record<string, string> = {
+  pendente: "Pendente",
+  em_execucao: "Em execução",
+  concluida: "Concluída",
+  parcial: "Parcial",
+  falhou: "Falhou",
+  cancelada: "Cancelada",
+};
+
+export function translateNeoMensagemStatus(status?: string | null): string {
+  if (!status) return "—";
+  return NEO_MENSAGEM_STATUS_LABELS[status.toLowerCase()] ?? status;
+}
+
+export const NEO_ANSWER_STATUS_LABELS: Record<string, string> = {
+  completo: "Completo",
+  parcial: "Parcial",
+  precisa_de_informacao: "Precisa de mais informações",
+};
+
+export function translateNeoAnswerStatus(status?: string | null): string {
+  if (!status) return "—";
+  return NEO_ANSWER_STATUS_LABELS[status.toLowerCase()] ?? status;
+}
+
+export const NEO_NIVEL_EVIDENCIA_LABELS: Record<string, string> = {
+  confirmado: "Confirmado",
+  bem_sustentado: "Bem sustentado",
+  indicio: "Indício",
+  nao_localizado: "Não localizado",
+  divergente: "Divergente",
+};
+
+export function translateNivelEvidencia(nivel?: string | null): string {
+  if (!nivel) return "—";
+  return NEO_NIVEL_EVIDENCIA_LABELS[nivel.toLowerCase()] ?? nivel;
+}
+
+const NEO_NIVEL_EVIDENCIA_TONES: Record<string, BadgeTone> = {
+  confirmado: "success",
+  bem_sustentado: "success",
+  indicio: "warning",
+  nao_localizado: "neutral",
+  divergente: "error",
+};
+
+export function toneForNivelEvidencia(nivel?: string | null): BadgeTone {
+  if (!nivel) return "neutral";
+  return NEO_NIVEL_EVIDENCIA_TONES[nivel.toLowerCase()] ?? "neutral";
+}
+
+export const NEO_ALERTA_CATEGORIA_LABELS: Record<string, string> = {
+  informacao_ausente: "Informação ausente",
+  divergencia: "Divergência",
+  resultado_parcial: "Resultado parcial",
+  limitacao: "Limitação",
+  cuidado_interpretativo: "Cuidado interpretativo",
+};
+
+export function translateAlertaCategoria(categoria?: string | null): string {
+  if (!categoria) return "—";
+  return NEO_ALERTA_CATEGORIA_LABELS[categoria.toLowerCase()] ?? categoria;
+}

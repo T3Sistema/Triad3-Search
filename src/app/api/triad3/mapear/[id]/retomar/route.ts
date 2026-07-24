@@ -1,6 +1,5 @@
-import { sgaiRequest } from "@/server/integrations/web-intelligence/client";
 import { jsonError, jsonOk, rejectUntrustedOrigin, requireApiUser, validationErrorResponse } from "@/lib/api-utils";
-import type { CrawlStatusResponse } from "@/server/integrations/web-intelligence/types";
+import { retomarMapeamento } from "@/server/services/mapear";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +16,7 @@ export async function POST(request: Request, ctx: { params: Params }) {
   const { id } = await ctx.params;
   if (!id) return validationErrorResponse("ID do crawl é obrigatório.");
 
-  const result = await sgaiRequest<CrawlStatusResponse>("POST", `/crawl/${encodeURIComponent(id)}/resume`);
+  const result = await retomarMapeamento(id);
   if (!result.ok) return jsonError(result.error);
   return jsonOk(result.data);
 }

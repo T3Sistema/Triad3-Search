@@ -37,9 +37,10 @@ jobs:
       - name: Build de produção
         run: npm run build
         env:
-          # Chave fictícia apenas para permitir que as rotas sejam
+          # Chaves fictícias apenas para permitir que as rotas sejam
           # coletadas durante o build de CI — nenhuma chamada real é feita.
           SGAI_API_KEY: ci-placeholder-key
+          OPENAI_API_KEY: ci-placeholder-key
 
       - name: Política de frontend (bundle estático)
         run: npm run check:ui-policy:static

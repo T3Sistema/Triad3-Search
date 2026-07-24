@@ -11,6 +11,16 @@ export const forbiddenFrontendTerms = [
   "v2-api.scrapegraphai.com",
   "supabase.co",
   "supabase",
+  // Neo (LLM orchestrator) — see src/server/neo/ and .claude/rules/frontend-product-rules.md.
+  "OpenAI",
+  "openai",
+  "gpt-5.4-mini",
+  "GPT-5.4",
+  "gpt-5",
+  "Responses API",
+  "response_format",
+  "reasoning.effort",
+  "api.openai.com",
 ];
 
 // Directories scanned for source-level violations (pre-build). Glob-style,
