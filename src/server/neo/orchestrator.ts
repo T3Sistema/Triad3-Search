@@ -2,24 +2,29 @@ import "server-only";
 import "@/server/neo/tools";
 import { NEO_LIMITS } from "@/server/neo/limits";
 import { createExecutionBudget, type ExecutionBudget } from "@/server/neo/budget";
-import { planInvestigation, type PlannerMessage } from "@/server/neo/planner";
 import {
-  runExecutor,
+  runNeoAgent,
+  forceNeoAgentConclusion,
+  createInitialAgentState,
+  type AgentCallbacks,
   type EtapaConcluidaInfo,
-  type EvidenceEntry,
-  type ExecutorState,
+  type NeoAgentState,
   type PendingCall,
-} from "@/server/neo/executor";
-import { synthesizeAnswer } from "@/server/neo/synthesizer";
-import { buildEvidenceFallbackAnswer, hasFallbackEvidence, summarizeToolResult, type FallbackEtapaLike } from "@/server/neo/fallback-answer";
+  type RunAgentInput,
+} from "@/server/neo/agent";
+import type { ConversationTurn } from "@/server/neo/context-builder";
+import type { NeoAgentTurn } from "@/server/neo/schemas";
+import { pruneUnusedFontes, type NeoAnswer } from "@/lib/neo/answer";
+import { sanitizeBannedTerms } from "@/lib/neo/sanitize-terms";
+import type { NeoClarificationForm } from "@/lib/neo/clarification-form";
+import { buildEvidenceFallbackAnswer, summarizeToolResult, type FallbackEtapaLike } from "@/server/neo/fallback-answer";
+import { refreshEntityMemoryFromAnswer, parseEntidadeMemoria } from "@/server/neo/entity-memory";
+import { refreshConversationSummary } from "@/server/neo/memory";
 import { NeoEventEmitter } from "@/server/neo/events";
 import { registerNeoExecution, requestNeoExecutionCancellation, unregisterNeoExecution } from "@/server/neo/execution-registry";
 import { reconcileConversationExecution } from "@/server/neo/reconciliation";
 import { logNeoInfo, logNeoWarn } from "@/server/neo/observability";
 import { neoError, type NeoError } from "@/server/neo/errors";
-import type { NeoObjetivo, NeoPlan } from "@/server/neo/schemas";
-import { refreshConversationSummary } from "@/server/neo/memory";
-import type { NormalizedFonte } from "@/server/neo/tool-normalizers";
 
 import { atualizarConversa, buscarConversaPorId, tocarConversa } from "@/server/db/repositories/neo-conversas";
 import { atualizarMensagem, inserirMensagem, listarUltimasMensagens } from "@/server/db/repositories/neo-mensagens";
@@ -33,8 +38,6 @@ import {
 } from "@/server/db/repositories/neo-execucoes";
 import { inserirEtapa, atualizarEtapa, listarEtapas, type NeoEtapaRow } from "@/server/db/repositories/neo-etapas";
 import { registrarFonte } from "@/server/db/repositories/neo-fontes";
-import { listarFontes } from "@/server/db/repositories/neo-fontes";
-import type { NeoAnswer } from "@/lib/neo/answer";
 
 export interface StartExecutionInput {
   usuarioId: string;
@@ -106,12 +109,12 @@ interface EtapaTracking {
   nomePublico: string;
 }
 
-function buildExecutorCallbacks(
+function buildAgentCallbacks(
   execucaoId: string,
   emitter: NeoEventEmitter,
   ordemRef: { current: number },
   totalRef: { current: number },
-) {
+): AgentCallbacks {
   const tracking = new Map<string, EtapaTracking>();
   const heartbeat = () => {
     void atualizarExecucao(execucaoId, { ultimoHeartbeatEm: new Date().toISOString() }).catch(() => {});
@@ -183,7 +186,7 @@ async function failExecution(execucaoId: string, mensagemId: string | undefined,
   if (mensagemId) await atualizarMensagem(mensagemId, { status: "falhou", conteudo: mensagem });
 }
 
-/** Mirrors executor.ts's toolCallSignature — kept local (not imported) so this stays independent of that module's mock surface in tests; both are trivial, stable, and covered by their own tests. */
+/** Mirrors agent.ts's toolCallSignature — kept local (not imported) so this stays independent of that module's mock surface in tests; both are trivial, stable, and covered by their own tests. */
 function continuationSignature(name: string, args: Record<string, unknown>): string {
   const sorted = Object.keys(args)
     .sort()
@@ -194,26 +197,14 @@ function continuationSignature(name: string, args: Record<string, unknown>): str
   return `${name}:${JSON.stringify(sorted)}`;
 }
 
-/** Loads a previous falhou/parcial execution's completed steps + sources as a seed state, so `Continuar investigação` never re-pays for work already done. */
-async function buildContinuationSeed(usuarioId: string, conversaId: string, continuarExecucaoId: string): Promise<ExecutorState | null> {
+/** Loads a previous falhou/parcial execution's completed steps + sources as a seed state, so `Continuar análise` never re-pays for work already done. */
+async function buildContinuationSeed(usuarioId: string, conversaId: string, continuarExecucaoId: string): Promise<NeoAgentState | null> {
   const anterior = await buscarExecucaoPorId(usuarioId, continuarExecucaoId);
   if (!anterior || anterior.conversaId !== conversaId) return null;
   if (anterior.status !== "falhou" && anterior.status !== "parcial") return null;
 
-  const [etapas, fontes] = await Promise.all([listarEtapas(anterior.id), listarFontes(anterior.id).catch(() => [])]);
-  const state: ExecutorState = {
-    round: 0,
-    toolCallsUsed: 0,
-    searchCallsUsed: 0,
-    evidence: [],
-    executedSignatures: [],
-    fontes: [],
-    tokensEntrada: 0,
-    tokensSaida: 0,
-    // Left empty on purpose — runExecutor seeds it from the freshly re-planned
-    // investigation's own camposSolicitados/dadosNecessarios once this seed is used.
-    objetivos: [],
-  };
+  const etapas = await listarEtapas(anterior.id);
+  const state = createInitialAgentState();
 
   for (const etapa of etapas) {
     if (etapa.tipo !== "ferramenta" || !etapa.ferramentaInterna) continue;
@@ -234,19 +225,19 @@ async function buildContinuationSeed(usuarioId: string, conversaId: string, cont
     if (resolvida) state.executedSignatures.push(continuationSignature(etapa.ferramentaInterna, args));
   }
 
-  for (const fonte of fontes) {
-    state.fontes.push({
-      url: fonte.url,
-      titulo: fonte.titulo ?? undefined,
-      dominio: fonte.dominio ?? undefined,
-      dataObservacao: fonte.dataObservacao ?? undefined,
-    });
-  }
-
   return state;
 }
 
-/** Runs phases 1-4 for a freshly created execution and streams friendly events to the browser. */
+interface RunContext {
+  execucaoId: string;
+  conversaId: string;
+  usuarioId: string;
+  emitter: NeoEventEmitter;
+  signal: AbortSignal;
+  budget: ExecutionBudget;
+}
+
+/** Runs a fresh (or resumed) agent turn and streams friendly events to the browser. */
 export async function runNeoExecution(params: {
   execucaoId: string;
   mensagemUsuarioId: string;
@@ -255,7 +246,7 @@ export async function runNeoExecution(params: {
   mensagemTexto: string;
   emitter: NeoEventEmitter;
   signal: AbortSignal;
-  /** When the user chose "Continuar investigação" on a previous falhou/parcial execution — seeds the new run with its completed steps and sources. */
+  /** When the user chose "Continuar análise" on a previous falhou/parcial execution — seeds the new run with its completed steps and sources. */
   continuarExecucaoId?: string;
 }): Promise<void> {
   const { execucaoId, mensagemUsuarioId, conversaId, usuarioId, mensagemTexto, emitter, signal, continuarExecucaoId } = params;
@@ -272,7 +263,7 @@ export async function runNeoExecution(params: {
   }, NEO_LIMITS.heartbeatIntervalMs);
 
   const assistantMessage = await findAssistantPlaceholder(conversaId);
-  logNeoInfo("execucao.iniciada", { execucaoId, fase: "planejando" });
+  logNeoInfo("execucao.iniciada", { execucaoId });
 
   try {
     await atualizarExecucao(execucaoId, { ultimoHeartbeatEm: new Date().toISOString() }).catch(() => {});
@@ -280,73 +271,37 @@ export async function runNeoExecution(params: {
 
     const conversa = await buscarConversaPorId(usuarioId, conversaId);
     const recentes = await listarUltimasMensagens(conversaId, NEO_LIMITS.recentMessagesWindow);
-    const plannerMessages: PlannerMessage[] = recentes
+    const mensagensRecentes: ConversationTurn[] = recentes
       .filter((m) => m.id !== mensagemUsuarioId && m.id !== assistantMessage?.id)
       .filter((m): m is typeof m & { conteudo: string } => Boolean(m.conteudo) && m.papel !== "sistema")
       .map((m) => ({ papel: m.papel === "usuario" ? "usuario" : "assistente", conteudo: m.conteudo }));
 
-    await atualizarExecucao(execucaoId, { status: "planejando" });
-    const planResult = await planInvestigation(
-      { mensagemAtual: mensagemTexto, resumoContexto: conversa?.resumoContexto ?? null, mensagensRecentes: plannerMessages },
-      combinedSignal,
-    );
-
-    if (!planResult.ok) {
-      await failExecution(execucaoId, assistantMessage?.id, planResult.error.message);
-      logNeoWarn("execucao.falhou", { execucaoId, fase: "planejando", motivoFinalizacao: "plano_invalido" });
-      emitter.emit({ tipo: "execucao.falhou", mensagem: planResult.error.message });
-      return;
-    }
-
-    const plan = planResult.plan;
-    await atualizarExecucao(execucaoId, { status: "executando", plano: plan, camposSolicitados: plan.camposSolicitados });
-    emitter.emit({ tipo: "plano.pronto", objetivo: plan.objetivoInterpretado, etapasPrevistas: plan.etapasPlanejadas });
-
-    if (plan.ambiguidadeBloqueante && plan.perguntaNecessaria) {
-      await finishWithAnswer({
-        execucaoId,
-        mensagemId: assistantMessage?.id,
-        conversaId,
-        usuarioId,
-        emitter,
-        signal: combinedSignal,
-        budget,
-        userMessage: mensagemTexto,
-        plan,
-        evidence: [],
-        fontesColetadas: [],
-        objetivos: [],
-        perguntaBloqueante: plan.perguntaNecessaria,
-        camposSolicitados: plan.camposSolicitados,
-        tokensEntradaAcumulado: 0,
-        tokensSaidaAcumulado: 0,
-      });
-      return;
-    }
+    await atualizarExecucao(execucaoId, { status: "executando" });
 
     const seedState = continuarExecucaoId ? await buildContinuationSeed(usuarioId, conversaId, continuarExecucaoId) : null;
+    const input: RunAgentInput = {
+      userMessage: mensagemTexto,
+      resumoContexto: conversa?.resumoContexto ?? null,
+      mensagensRecentes,
+      entidades: parseEntidadeMemoria(conversa?.entidadesAtivas),
+    };
+
     const ordemRef = { current: 0 };
     const totalRef = { current: 0 };
-    const outcome = await runExecutor(plan, mensagemTexto, buildExecutorCallbacks(execucaoId, emitter, ordemRef, totalRef), {
+    const outcome = await runNeoAgent(input, buildAgentCallbacks(execucaoId, emitter, ordemRef, totalRef), {
       usuarioId,
       signal: combinedSignal,
       budget,
       resumeState: seedState ?? undefined,
     });
 
-    await handleExecutorOutcome({
-      execucaoId,
-      conversaId,
-      usuarioId,
-      mensagemId: assistantMessage?.id,
-      emitter,
-      signal: combinedSignal,
-      budget,
-      userMessage: mensagemTexto,
-      plan,
-      state: outcome.state,
-      outcome: outcome.outcome,
-    });
+    await handleAgentOutcome(
+      { execucaoId, conversaId, usuarioId, emitter, signal: combinedSignal, budget },
+      assistantMessage?.id,
+      input,
+      outcome.outcome,
+      outcome.state,
+    );
   } catch {
     const message = signal.aborted ? "A execução foi interrompida." : "Não foi possível concluir a análise.";
     await failExecution(execucaoId, assistantMessage?.id, message);
@@ -360,26 +315,16 @@ export async function runNeoExecution(params: {
   }
 }
 
-interface HandleOutcomeParams {
-  execucaoId: string;
-  conversaId: string;
-  usuarioId: string;
-  mensagemId: string | undefined;
-  emitter: NeoEventEmitter;
-  signal: AbortSignal;
-  budget: ExecutionBudget;
-  userMessage: string;
-  plan: NeoPlan;
-  state: ExecutorState;
-  outcome: Awaited<ReturnType<typeof runExecutor>>["outcome"];
-}
-
-async function handleExecutorOutcome(params: HandleOutcomeParams): Promise<void> {
-  const { execucaoId, conversaId, usuarioId, mensagemId, emitter, signal, budget, userMessage, plan, state, outcome } = params;
-
+async function handleAgentOutcome(
+  rc: RunContext,
+  mensagemId: string | undefined,
+  input: RunAgentInput,
+  outcome: Awaited<ReturnType<typeof runNeoAgent>>["outcome"],
+  state: NeoAgentState,
+): Promise<void> {
   if (outcome.status === "aguardando_confirmacao") {
     const etapa = await inserirEtapa({
-      execucaoId,
+      execucaoId: rc.execucaoId,
       ordem: 9999,
       tipo: "confirmacao",
       nomePublico: "Aguardando confirmação",
@@ -387,14 +332,14 @@ async function handleExecutorOutcome(params: HandleOutcomeParams): Promise<void>
       status: "aguardando",
       argumentosSanitizados: outcome.pendentes,
     });
-    await atualizarExecucao(execucaoId, {
+    await atualizarExecucao(rc.execucaoId, {
       status: "aguardando_confirmacao",
-      contextoPendente: { state, pendentes: outcome.pendentes, plan, mensagemId: mensagemId ?? null },
+      contextoPendente: { state, pendentes: outcome.pendentes, mensagemId: mensagemId ?? null },
       ultimoHeartbeatEm: new Date().toISOString(),
     });
-    emitter.emit({
+    rc.emitter.emit({
       tipo: "confirmacao.necessaria",
-      execucaoId,
+      execucaoId: rc.execucaoId,
       etapaId: etapa.id,
       nomePublico: outcome.ferramentaInterna,
       descricao: outcome.descricao,
@@ -404,161 +349,89 @@ async function handleExecutorOutcome(params: HandleOutcomeParams): Promise<void>
 
   if (outcome.status === "cancelada") {
     if (state.evidence.length > 0) {
-      await finishWithAnswer({
-        execucaoId,
-        mensagemId,
-        conversaId,
-        usuarioId,
-        emitter,
-        signal,
-        budget,
-        userMessage,
-        plan,
-        evidence: state.evidence,
-        fontesColetadas: state.fontes,
-        objetivos: state.objetivos,
-        limiteAtingidoMotivo: "A execução foi interrompida pelo usuário antes de concluir.",
-        camposSolicitados: plan.camposSolicitados,
-        tokensEntradaAcumulado: state.tokensEntrada,
-        tokensSaidaAcumulado: state.tokensSaida,
-        forcarStatusParcial: true,
-      });
+      await finalizeRelatorio(rc, mensagemId, buildFallback(state, "A execução foi interrompida pelo usuário antes de concluir."), { forcarParcial: true });
     } else {
-      await atualizarExecucao(execucaoId, { status: "cancelada", canceladoEm: new Date().toISOString() });
+      await atualizarExecucao(rc.execucaoId, { status: "cancelada", canceladoEm: new Date().toISOString() });
       if (mensagemId) await atualizarMensagem(mensagemId, { status: "cancelada", conteudo: "A execução foi interrompida." });
     }
-    logNeoInfo("execucao.finalizada", { execucaoId, motivoFinalizacao: "cancelada", concluidas: state.evidence.filter((e) => e.ok).length });
-    emitter.emit({ tipo: "execucao.cancelada" });
+    logNeoInfo("execucao.finalizada", { execucaoId: rc.execucaoId, motivoFinalizacao: "cancelada", concluidas: state.evidence.filter((e) => e.ok).length });
+    rc.emitter.emit({ tipo: "execucao.cancelada" });
     return;
   }
 
   if (outcome.status === "falhou") {
-    await failExecution(execucaoId, mensagemId, outcome.erroPublico);
-    logNeoWarn("execucao.finalizada", { execucaoId, motivoFinalizacao: "falhou", concluidas: state.evidence.filter((e) => e.ok).length });
-    emitter.emit({ tipo: "execucao.falhou", mensagem: outcome.erroPublico });
+    await failExecution(rc.execucaoId, mensagemId, outcome.erroPublico);
+    logNeoWarn("execucao.finalizada", { execucaoId: rc.execucaoId, motivoFinalizacao: "falhou", concluidas: state.evidence.filter((e) => e.ok).length });
+    rc.emitter.emit({ tipo: "execucao.falhou", mensagem: outcome.erroPublico });
     return;
   }
 
-  const limiteAtingidoMotivo = outcome.status === "limite_atingido" ? outcome.motivo : undefined;
-  if (limiteAtingidoMotivo) {
-    emitter.emit({ tipo: "execucao.parcial", motivo: limiteAtingidoMotivo });
-  }
-
-  await finishWithAnswer({
-    execucaoId,
-    mensagemId,
-    conversaId,
-    usuarioId,
-    emitter,
-    signal,
-    budget,
-    userMessage,
-    plan,
-    evidence: state.evidence,
-    fontesColetadas: state.fontes,
-    objetivos: state.objetivos,
-    limiteAtingidoMotivo,
-    camposSolicitados: plan.camposSolicitados,
-    tokensEntradaAcumulado: state.tokensEntrada,
-    tokensSaidaAcumulado: state.tokensSaida,
-  });
-}
-
-interface FinishWithAnswerParams {
-  execucaoId: string;
-  mensagemId: string | undefined;
-  conversaId: string;
-  usuarioId: string;
-  emitter: NeoEventEmitter;
-  signal: AbortSignal;
-  budget: ExecutionBudget;
-  userMessage: string;
-  plan: NeoPlan | null;
-  evidence: EvidenceEntry[];
-  fontesColetadas: NormalizedFonte[];
-  objetivos: NeoObjetivo[];
-  limiteAtingidoMotivo?: string;
-  perguntaBloqueante?: string;
-  camposSolicitados: string[];
-  tokensEntradaAcumulado: number;
-  tokensSaidaAcumulado: number;
-  forcarStatusParcial?: boolean;
-}
-
-/** Below this, a real synthesis call has no realistic chance to finish inside the reserve — go straight to the deterministic fallback instead of starting doomed work. */
-const MIN_SYNTHESIS_ATTEMPT_MS = 5_000;
-
-async function finishWithAnswer(params: FinishWithAnswerParams): Promise<void> {
-  const remaining = params.budget.synthesisRemainingMs();
-  const canAttemptSynthesis = remaining >= MIN_SYNTHESIS_ATTEMPT_MS && !params.signal.aborted;
-
-  let answer: NeoAnswer;
-  let fontesParaRegistrar: NeoAnswer["fontes"];
-  let tokensEntradaSintese = 0;
-  let tokensSaidaSintese = 0;
-  let relatorio: "completo" | "parcial" | "fallback" = "completo";
-
-  const evidenceLike: FallbackEtapaLike[] = params.evidence;
-
-  if (canAttemptSynthesis) {
-    const synthesisTimeoutController = new AbortController();
-    const synthesisTimer = setTimeout(() => synthesisTimeoutController.abort(), remaining);
-    try {
-      const synthesis = await synthesizeAnswer(
-        {
-          userMessage: params.userMessage,
-          plan: params.plan,
-          evidence: params.evidence,
-          fontesColetadas: params.fontesColetadas,
-          objetivos: params.objetivos,
-          limiteAtingidoMotivo: params.limiteAtingidoMotivo,
-          perguntaBloqueante: params.perguntaBloqueante ?? null,
-        },
-        AbortSignal.any([params.signal, synthesisTimeoutController.signal]),
-      );
-      tokensEntradaSintese = synthesis.tokensEntrada;
-      tokensSaidaSintese = synthesis.tokensSaida;
-
-      if (synthesis.validationFailed && hasFallbackEvidence(evidenceLike, params.fontesColetadas)) {
-        // The model-based synthesis (including its own one retry) never produced valid
-        // Structured Output — fall back to the deterministic, evidence-based report
-        // instead of the generic text-only fallback, so completed work is never lost.
-        answer = buildEvidenceFallbackAnswer({
-          motivo: params.limiteAtingidoMotivo ?? "Não foi possível montar o relatório final da análise.",
-          etapas: evidenceLike,
-          fontes: params.fontesColetadas,
-          objetivos: params.objetivos,
-        });
-        fontesParaRegistrar = answer.fontes;
-        relatorio = "fallback";
-      } else {
-        answer = synthesis.answer;
-        fontesParaRegistrar = synthesis.fontes;
-        relatorio = synthesis.validationFailed ? "fallback" : "completo";
+  if (outcome.status === "limite_atingido") {
+    rc.emitter.emit({ tipo: "execucao.parcial", motivo: outcome.motivo });
+    const remaining = rc.budget.synthesisRemainingMs();
+    let decisao: NeoAgentTurn | null = null;
+    if (remaining >= MIN_CONCLUSION_ATTEMPT_MS && !rc.signal.aborted) {
+      const timeoutController = new AbortController();
+      const timer = setTimeout(() => timeoutController.abort(), remaining);
+      try {
+        decisao = await forceNeoAgentConclusion(input, state, AbortSignal.any([rc.signal, timeoutController.signal]));
+      } finally {
+        clearTimeout(timer);
       }
-    } finally {
-      clearTimeout(synthesisTimer);
     }
-  } else {
-    // No time left in the synthesis reserve for even one LLM round trip — build the
-    // report directly from what's already persisted, with zero additional LLM calls.
-    answer = buildEvidenceFallbackAnswer({
-      motivo: params.limiteAtingidoMotivo ?? "A execução foi interrompida antes da preparação do relatório.",
-      etapas: evidenceLike,
-      fontes: params.fontesColetadas,
-      objetivos: params.objetivos,
-    });
-    fontesParaRegistrar = answer.fontes;
-    relatorio = "fallback";
+    if (decisao) {
+      await applyAgentDecision(rc, mensagemId, state, decisao, { forcarParcial: true });
+    } else {
+      await finalizeRelatorio(rc, mensagemId, buildFallback(state, outcome.motivo), { forcarParcial: true });
+    }
+    return;
   }
 
-  if (params.forcarStatusParcial && answer.status === "completo") {
+  // outcome.status === "concluido"
+  await applyAgentDecision(rc, mensagemId, state, outcome.decisao, {});
+}
+
+/** Below this, one more LLM call has no realistic chance to finish inside the reserve — go straight to the deterministic fallback instead of starting doomed work. */
+const MIN_CONCLUSION_ATTEMPT_MS = 5_000;
+
+function buildFallback(state: NeoAgentState, motivo: string): NeoAnswer {
+  const evidenceLike: FallbackEtapaLike[] = state.evidence;
+  return buildEvidenceFallbackAnswer({ motivo, etapas: evidenceLike, fontes: state.fontes });
+}
+
+async function applyAgentDecision(
+  rc: RunContext,
+  mensagemId: string | undefined,
+  state: NeoAgentState,
+  decisao: NeoAgentTurn,
+  options: { forcarParcial?: boolean },
+): Promise<void> {
+  if (decisao.tipo === "relatorio") {
+    await finalizeRelatorio(rc, mensagemId, decisao.relatorio, options);
+    return;
+  }
+  if (decisao.tipo === "formulario") {
+    await pauseForFormulario(rc, mensagemId, state, decisao.formulario);
+    return;
+  }
+  // "resposta" ou "pergunta" — ambas viram uma mensagem conversacional normal.
+  await finalizePlainReply(rc, mensagemId, decisao.texto);
+}
+
+async function finalizeRelatorio(
+  rc: RunContext,
+  mensagemId: string | undefined,
+  relatorioBruto: NeoAnswer,
+  options: { forcarParcial?: boolean },
+): Promise<void> {
+  let answer = sanitizeBannedTerms(pruneUnusedFontes(relatorioBruto));
+  if (options.forcarParcial && answer.status === "completo") {
     answer = { ...answer, status: "parcial" };
   }
 
-  for (const fonte of fontesParaRegistrar) {
+  for (const fonte of answer.fontes) {
     await registrarFonte({
-      execucaoId: params.execucaoId,
+      execucaoId: rc.execucaoId,
       url: fonte.url,
       titulo: fonte.titulo,
       dominio: fonte.dominio,
@@ -566,41 +439,61 @@ async function finishWithAnswer(params: FinishWithAnswerParams): Promise<void> {
     }).catch(() => {});
   }
 
-  const camposAusentes = answer.lacunas.map((l) => l.descricao);
-  const camposEncontrados = params.camposSolicitados.filter((campo) => !camposAusentes.includes(campo));
-  // "nao_concluido" is a report-content distinction (drives the compact frontend state) —
-  // at the coarser execução/mensagem DB level it's still bucketed with "parcial".
   const relatorioIncompleto = answer.status === "parcial" || answer.status === "nao_concluido";
   const execucaoStatus = relatorioIncompleto ? "parcial" : "concluida";
 
-  await atualizarExecucao(params.execucaoId, {
-    status: execucaoStatus,
-    camposEncontrados,
-    camposAusentes,
-    concluidoEm: new Date().toISOString(),
-    tokensEntrada: params.tokensEntradaAcumulado + tokensEntradaSintese,
-    tokensSaida: params.tokensSaidaAcumulado + tokensSaidaSintese,
-  });
-
-  if (params.mensagemId) {
-    await atualizarMensagem(params.mensagemId, {
+  await atualizarExecucao(rc.execucaoId, { status: execucaoStatus, concluidoEm: new Date().toISOString() });
+  if (mensagemId) {
+    await atualizarMensagem(mensagemId, {
       status: relatorioIncompleto ? "parcial" : "concluida",
       conteudo: answer.respostaDireta,
       respostaEstruturada: answer,
     });
   }
 
-  await tocarConversa(params.conversaId).catch(() => {});
-  logNeoInfo("execucao.finalizada", {
-    execucaoId: params.execucaoId,
-    motivoFinalizacao: params.limiteAtingidoMotivo ?? "concluida",
-    concluidas: params.evidence.filter((e) => e.ok).length,
-    orcamentoRestanteMs: params.budget.synthesisRemainingMs(),
-    relatorio,
-  });
-  params.emitter.emit({ tipo: "resposta.concluida", mensagemId: params.mensagemId ?? "", resposta: answer });
+  await tocarConversa(rc.conversaId).catch(() => {});
+  await refreshEntityMemoryIfChanged(rc.usuarioId, rc.conversaId, answer);
 
-  void refreshMemoryIfNeeded(params.conversaId, params.usuarioId);
+  logNeoInfo("execucao.finalizada", { execucaoId: rc.execucaoId, motivoFinalizacao: "concluida" });
+  rc.emitter.emit({ tipo: "resposta.concluida", mensagemId: mensagemId ?? "", resposta: answer });
+  void refreshMemoryIfNeeded(rc.conversaId, rc.usuarioId);
+}
+
+async function finalizePlainReply(rc: RunContext, mensagemId: string | undefined, texto: string): Promise<void> {
+  await atualizarExecucao(rc.execucaoId, { status: "concluida", concluidoEm: new Date().toISOString() });
+  if (mensagemId) {
+    await atualizarMensagem(mensagemId, { status: "concluida", conteudo: texto, respostaEstruturada: null });
+  }
+  await tocarConversa(rc.conversaId).catch(() => {});
+  logNeoInfo("execucao.finalizada", { execucaoId: rc.execucaoId, motivoFinalizacao: "concluida" });
+  rc.emitter.emit({ tipo: "resposta.mensagem", mensagemId: mensagemId ?? "", texto });
+  void refreshMemoryIfNeeded(rc.conversaId, rc.usuarioId);
+}
+
+async function pauseForFormulario(
+  rc: RunContext,
+  mensagemId: string | undefined,
+  state: NeoAgentState,
+  formulario: NeoClarificationForm,
+): Promise<void> {
+  await atualizarExecucao(rc.execucaoId, {
+    status: "aguardando_confirmacao",
+    contextoPendente: { state, pendentes: [], mensagemId: mensagemId ?? null, formulario },
+    ultimoHeartbeatEm: new Date().toISOString(),
+  });
+  rc.emitter.emit({ tipo: "formulario.necessario", execucaoId: rc.execucaoId, mensagemId: mensagemId ?? "", formulario });
+}
+
+async function refreshEntityMemoryIfChanged(usuarioId: string, conversaId: string, answer: NeoAnswer): Promise<void> {
+  try {
+    const conversa = await buscarConversaPorId(usuarioId, conversaId);
+    const atual = parseEntidadeMemoria(conversa?.entidadesAtivas);
+    const nova = refreshEntityMemoryFromAnswer(atual, answer);
+    if (JSON.stringify(nova) === JSON.stringify(atual)) return;
+    await atualizarConversa(usuarioId, conversaId, { entidadesAtivas: nova }).catch(() => {});
+  } catch {
+    // best-effort — a missed entity-memory refresh never blocks the conversation.
+  }
 }
 
 async function refreshMemoryIfNeeded(conversaId: string, usuarioId: string): Promise<void> {
@@ -621,21 +514,24 @@ async function refreshMemoryIfNeeded(conversaId: string, usuarioId: string): Pro
 }
 
 /**
- * Resumes a paused execution after the user confirms or rejects a persistent
- * action (POST /api/triad3/neo/execucoes/[id]/confirmar). Runs on a fresh
- * SSE stream — the original /executar stream already closed when it paused.
- * Gets its own fresh execution budget, matching the fresh maxDuration window
- * this is a brand-new server invocation.
+ * Resumes a paused execution after the user confirms/rejects a persistent
+ * action, or answers a formulário (both use the same `aguardando_confirmacao`
+ * pause). Runs on a fresh SSE stream — the original /executar stream already
+ * closed when it paused. Gets its own fresh execution budget, matching the
+ * fresh maxDuration window this is a brand-new server invocation.
  */
-export async function resumeNeoExecutionAfterConfirmation(params: {
+async function resumeNeoExecution(params: {
   usuarioId: string;
   conversaId: string;
   execucaoId: string;
-  confirmado: boolean;
   emitter: NeoEventEmitter;
   signal: AbortSignal;
+  onResume: (
+    contexto: PendingContext,
+    ctx: RunContext,
+  ) => Promise<{ state: NeoAgentState; valoresFormulario?: Record<string, unknown> | null; resumeConfirmedCalls?: PendingCall[] }>;
 }): Promise<void> {
-  const { usuarioId, conversaId, execucaoId, confirmado, emitter, signal } = params;
+  const { usuarioId, conversaId, execucaoId, emitter, signal } = params;
   const budget = createExecutionBudget();
   const localController = new AbortController();
   const hardTimeoutController = new AbortController();
@@ -648,76 +544,49 @@ export async function resumeNeoExecutionAfterConfirmation(params: {
     emitter.emit({ tipo: "heartbeat", execucaoId, decorridoMs: budget.elapsedMs() });
   }, NEO_LIMITS.heartbeatIntervalMs);
 
+  const rc: RunContext = { execucaoId, conversaId, usuarioId, emitter, signal: combinedSignal, budget };
+
   try {
     const pending = await getExecutionPendingConfirmation(usuarioId, execucaoId);
     if (!pending) {
       emitter.emit({ tipo: "execucao.falhou", mensagem: "Não há confirmação pendente para esta execução." });
       return;
     }
-
     const { contexto } = pending;
-    const etapasExistentes = await listarEtapas(execucaoId);
-    const confirmationEtapa = [...etapasExistentes].reverse().find((e) => e.tipo === "confirmacao" && e.status === "aguardando");
-    if (confirmationEtapa) {
-      await atualizarEtapa(confirmationEtapa.id, {
-        status: confirmado ? "concluida" : "cancelada",
-        erroPublico: confirmado ? undefined : "Ação não confirmada pelo usuário.",
-        concluidoEm: new Date().toISOString(),
-      });
-      emitter.emit({
-        tipo: confirmado ? "etapa.concluida" : "etapa.falhou",
-        etapaId: confirmationEtapa.id,
-        ordem: confirmationEtapa.ordem,
-        nomePublico: confirmationEtapa.nomePublico,
-        ...(confirmado ? { resumo: "Ação confirmada pelo usuário." } : { mensagem: "Ação cancelada pelo usuário." }),
-      } as Parameters<NeoEventEmitter["emit"]>[0]);
-    }
 
-    const state = contexto.state;
-    if (!confirmado) {
-      for (const call of contexto.pendentes) {
-        state.evidence.push({
-          ferramenta: call.name,
-          nomePublico: call.name,
-          argumentos: call.args,
-          ok: false,
-          resumo: null,
-          erroPublico: "Ação não confirmada pelo usuário.",
-        });
-      }
-    }
+    const { state, valoresFormulario, resumeConfirmedCalls } = await params.onResume(contexto, rc);
 
     await atualizarExecucao(execucaoId, { status: "executando", ultimoHeartbeatEm: new Date().toISOString() });
     emitter.emit({ tipo: "execucao.iniciada", execucaoId, mensagemId: contexto.mensagemId ?? "" });
 
-    const ultimaMensagemUsuario = [...(await listarUltimasMensagens(conversaId, NEO_LIMITS.recentMessagesWindow))]
-      .reverse()
-      .find((m) => m.papel === "usuario");
-    const userMessage = ultimaMensagemUsuario?.conteudo ?? contexto.plan.objetivoInterpretado;
+    const conversa = await buscarConversaPorId(usuarioId, conversaId);
+    const recentes = await listarUltimasMensagens(conversaId, NEO_LIMITS.recentMessagesWindow);
+    const ultimaMensagemUsuario = [...recentes].reverse().find((m) => m.papel === "usuario");
+    const mensagensRecentes: ConversationTurn[] = recentes
+      .filter((m) => m.id !== ultimaMensagemUsuario?.id)
+      .filter((m): m is typeof m & { conteudo: string } => Boolean(m.conteudo) && m.papel !== "sistema")
+      .map((m) => ({ papel: m.papel === "usuario" ? "usuario" : "assistente", conteudo: m.conteudo }));
 
+    const input: RunAgentInput = {
+      userMessage: ultimaMensagemUsuario?.conteudo ?? "",
+      resumoContexto: conversa?.resumoContexto ?? null,
+      mensagensRecentes,
+      entidades: parseEntidadeMemoria(conversa?.entidadesAtivas),
+      valoresFormulario,
+    };
+
+    const etapasExistentes = await listarEtapas(execucaoId);
     const ordemRef = { current: etapasExistentes.length };
     const totalRef = { current: countTerminalToolSteps(etapasExistentes) };
-    const outcome = await runExecutor(contexto.plan, userMessage, buildExecutorCallbacks(execucaoId, emitter, ordemRef, totalRef), {
+    const outcome = await runNeoAgent(input, buildAgentCallbacks(execucaoId, emitter, ordemRef, totalRef), {
       usuarioId,
       signal: combinedSignal,
       budget,
       resumeState: state,
-      resumeConfirmedCalls: confirmado ? contexto.pendentes : undefined,
+      resumeConfirmedCalls,
     });
 
-    await handleExecutorOutcome({
-      execucaoId,
-      conversaId,
-      usuarioId,
-      mensagemId: contexto.mensagemId ?? undefined,
-      emitter,
-      signal: combinedSignal,
-      budget,
-      userMessage,
-      plan: contexto.plan,
-      state: outcome.state,
-      outcome: outcome.outcome,
-    });
+    await handleAgentOutcome(rc, contexto.mensagemId ?? undefined, input, outcome.outcome, outcome.state);
   } catch {
     const message = signal.aborted ? "A execução foi interrompida." : "Não foi possível continuar a análise.";
     await failExecution(execucaoId, undefined, message);
@@ -728,6 +597,78 @@ export async function resumeNeoExecutionAfterConfirmation(params: {
     unregisterNeoExecution(execucaoId);
     emitter.close();
   }
+}
+
+/** Called by POST /api/triad3/neo/execucoes/[id]/confirmar. */
+export async function resumeNeoExecutionAfterConfirmation(params: {
+  usuarioId: string;
+  conversaId: string;
+  execucaoId: string;
+  confirmado: boolean;
+  emitter: NeoEventEmitter;
+  signal: AbortSignal;
+}): Promise<void> {
+  await resumeNeoExecution({
+    usuarioId: params.usuarioId,
+    conversaId: params.conversaId,
+    execucaoId: params.execucaoId,
+    emitter: params.emitter,
+    signal: params.signal,
+    onResume: async (contexto, rc) => {
+      const etapasExistentes = await listarEtapas(rc.execucaoId);
+      const confirmationEtapa = [...etapasExistentes].reverse().find((e) => e.tipo === "confirmacao" && e.status === "aguardando");
+      if (confirmationEtapa) {
+        await atualizarEtapa(confirmationEtapa.id, {
+          status: params.confirmado ? "concluida" : "cancelada",
+          erroPublico: params.confirmado ? undefined : "Ação não confirmada pelo usuário.",
+          concluidoEm: new Date().toISOString(),
+        });
+        rc.emitter.emit({
+          tipo: params.confirmado ? "etapa.concluida" : "etapa.falhou",
+          etapaId: confirmationEtapa.id,
+          ordem: confirmationEtapa.ordem,
+          nomePublico: confirmationEtapa.nomePublico,
+          ...(params.confirmado ? { resumo: "Ação confirmada pelo usuário." } : { mensagem: "Ação cancelada pelo usuário." }),
+        } as Parameters<NeoEventEmitter["emit"]>[0]);
+      }
+
+      const state = contexto.state;
+      if (!params.confirmado) {
+        for (const call of contexto.pendentes) {
+          state.evidence.push({
+            ferramenta: call.name,
+            nomePublico: call.name,
+            argumentos: call.args,
+            ok: false,
+            resumo: null,
+            erroPublico: "Ação não confirmada pelo usuário.",
+          });
+        }
+        return { state };
+      }
+
+      return { state, resumeConfirmedCalls: contexto.pendentes };
+    },
+  });
+}
+
+/** Called by POST /api/triad3/neo/execucoes/[id]/formulario. */
+export async function resumeNeoExecutionAfterForm(params: {
+  usuarioId: string;
+  conversaId: string;
+  execucaoId: string;
+  valores: Record<string, unknown>;
+  emitter: NeoEventEmitter;
+  signal: AbortSignal;
+}): Promise<void> {
+  await resumeNeoExecution({
+    usuarioId: params.usuarioId,
+    conversaId: params.conversaId,
+    execucaoId: params.execucaoId,
+    emitter: params.emitter,
+    signal: params.signal,
+    onResume: async (contexto) => ({ state: contexto.state, valoresFormulario: params.valores }),
+  });
 }
 
 function countTerminalToolSteps(etapas: NeoEtapaRow[]): number {
@@ -758,15 +699,17 @@ export async function cancelNeoExecution(usuarioId: string, execucaoId: string):
   return { ok: true, jaFinalizada: false };
 }
 
+export interface PendingContext {
+  state: NeoAgentState;
+  pendentes: PendingCall[];
+  mensagemId: string | null;
+  formulario?: NeoClarificationForm;
+}
+
 export async function getExecutionPendingConfirmation(usuarioId: string, execucaoId: string) {
   const execucao = await buscarExecucaoPorId(usuarioId, execucaoId);
   if (!execucao || execucao.status !== "aguardando_confirmacao") return null;
-  const contexto = execucao.contextoPendente as {
-    state: ExecutorState;
-    pendentes: PendingCall[];
-    plan: NeoPlan;
-    mensagemId: string | null;
-  } | null;
+  const contexto = execucao.contextoPendente as PendingContext | null;
   if (!contexto) return null;
   return { execucao, contexto };
 }

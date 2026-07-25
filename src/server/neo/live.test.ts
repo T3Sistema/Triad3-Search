@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { callNeoResponses } from "./client";
 import { NEO_MODEL } from "./model";
-import { neoPlanSchema } from "./schemas";
+import { neoAgentTurnSchema } from "./schemas";
 import { zodTextFormat, zodResponsesFunction } from "openai/helpers/zod";
 
 /**
@@ -17,17 +17,17 @@ import { zodTextFormat, zodResponsesFunction } from "openai/helpers/zod";
 const isLive = process.env.RUN_NEO_LIVE_TESTS === "true" && Boolean(process.env.OPENAI_API_KEY);
 
 describe.skipIf(!isLive)("live Neo LLM integration", () => {
-  it("produces a schema-valid NeoPlan for a trivial, generic request", async () => {
+  it("produces a schema-valid NeoAgentTurn decision for a trivial, generic request", async () => {
     const response = await callNeoResponses({
       model: NEO_MODEL,
-      instructions: "Você é um planejador de investigações. Responda em português do Brasil.",
+      instructions: "Você é um agente que responde pedidos em texto livre. Responda em português do Brasil.",
       input: "Quero saber o horário de funcionamento de uma biblioteca pública genérica.",
-      text: { format: zodTextFormat(neoPlanSchema, "neo_plan_live_check") },
+      text: { format: zodTextFormat(neoAgentTurnSchema, "neo_agent_turn_live_check") },
       reasoning: { effort: "high" },
       store: false,
     });
     expect(response.output_text).toBeTruthy();
-    const parsed = neoPlanSchema.safeParse(JSON.parse(response.output_text!));
+    const parsed = neoAgentTurnSchema.safeParse(JSON.parse(response.output_text!));
     expect(parsed.success).toBe(true);
   });
 

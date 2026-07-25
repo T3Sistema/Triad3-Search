@@ -28,6 +28,12 @@ export const confirmarExecucaoRequestSchema = z.object({
 });
 export type ConfirmarExecucaoRequest = z.infer<typeof confirmarExecucaoRequestSchema>;
 
+/** Values submitted for a pending formulário (src/lib/neo/clarification-form.ts) — revalidated server-side against the campos actually asked, never trusted as-is. */
+export const enviarFormularioRequestSchema = z.object({
+  valores: z.record(z.string(), z.union([z.string(), z.array(z.string()), z.boolean()])),
+});
+export type EnviarFormularioRequest = z.infer<typeof enviarFormularioRequestSchema>;
+
 export const listarConversasQuerySchema = z.object({
   busca: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),

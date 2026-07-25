@@ -8,6 +8,8 @@ export interface NeoConversaRow {
   usuarioId: string;
   titulo: string;
   resumoContexto: string | null;
+  /** Structured entity memory (src/lib/neo/entity.ts) — merged in code, never by the model. */
+  entidadesAtivas: unknown;
   status: NeoConversaStatus;
   criadoEm: string;
   atualizadoEm: string;
@@ -18,6 +20,7 @@ interface ConversaDbRow {
   usuario_id: string;
   titulo: string;
   resumo_contexto: string | null;
+  entidades_ativas: unknown;
   status: string;
   criado_em: string;
   atualizado_em: string;
@@ -29,13 +32,14 @@ function mapConversa(row: ConversaDbRow): NeoConversaRow {
     usuarioId: row.usuario_id,
     titulo: row.titulo,
     resumoContexto: row.resumo_contexto,
+    entidadesAtivas: row.entidades_ativas,
     status: row.status as NeoConversaStatus,
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
   };
 }
 
-const SELECT_COLUMNS = "id, usuario_id, titulo, resumo_contexto, status, criado_em, atualizado_em";
+const SELECT_COLUMNS = "id, usuario_id, titulo, resumo_contexto, entidades_ativas, status, criado_em, atualizado_em";
 
 export async function criarConversa(input: { usuarioId: string; titulo: string }): Promise<NeoConversaRow> {
   const { data, error } = await getSupabaseAdmin()
@@ -83,11 +87,12 @@ export async function buscarConversaPorId(usuarioId: string, id: string): Promis
 export async function atualizarConversa(
   usuarioId: string,
   id: string,
-  patch: { titulo?: string; resumoContexto?: string; status?: NeoConversaStatus },
+  patch: { titulo?: string; resumoContexto?: string; entidadesAtivas?: unknown; status?: NeoConversaStatus },
 ): Promise<NeoConversaRow | null> {
   const payload: Record<string, unknown> = {};
   if (patch.titulo !== undefined) payload.titulo = patch.titulo;
   if (patch.resumoContexto !== undefined) payload.resumo_contexto = patch.resumoContexto;
+  if (patch.entidadesAtivas !== undefined) payload.entidades_ativas = patch.entidadesAtivas;
   if (patch.status !== undefined) payload.status = patch.status;
 
   const { data, error } = await getSupabaseAdmin()

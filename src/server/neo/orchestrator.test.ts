@@ -7,9 +7,7 @@ vi.mock("@/server/db/repositories/neo-mensagens");
 vi.mock("@/server/db/repositories/neo-execucoes");
 vi.mock("@/server/db/repositories/neo-etapas");
 vi.mock("@/server/db/repositories/neo-fontes");
-vi.mock("@/server/neo/planner");
-vi.mock("@/server/neo/executor");
-vi.mock("@/server/neo/synthesizer");
+vi.mock("@/server/neo/agent");
 vi.mock("@/server/neo/memory");
 vi.mock("@/server/neo/budget", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/neo/budget")>();
@@ -21,9 +19,7 @@ import * as mensagensRepo from "@/server/db/repositories/neo-mensagens";
 import * as execucoesRepo from "@/server/db/repositories/neo-execucoes";
 import * as etapasRepo from "@/server/db/repositories/neo-etapas";
 import * as fontesRepo from "@/server/db/repositories/neo-fontes";
-import * as plannerMod from "@/server/neo/planner";
-import * as executorMod from "@/server/neo/executor";
-import * as synthesizerMod from "@/server/neo/synthesizer";
+import * as agentMod from "@/server/neo/agent";
 import * as budgetMod from "@/server/neo/budget";
 import {
   startNeoExecution,
@@ -43,20 +39,6 @@ function fakeEmitter() {
   };
 }
 
-const plan = {
-  objetivoInterpretado: "Investigar um alvo genérico.",
-  ambiguidadeBloqueante: false,
-  perguntaNecessaria: null,
-  etapasPlanejadas: ["Localizar fontes"],
-  dadosNecessarios: [],
-  criteriosConclusao: ["Ao menos uma fonte"],
-  ferramentasProvaveis: [],
-  execucaoParalelaPossivel: true,
-  riscoConfusaoEntidades: null,
-  camposSolicitados: ["site oficial"],
-  formatoRelatorioEsperado: "texto",
-};
-
 function fakeAnswer(overrides: Record<string, unknown> = {}) {
   return {
     version: NEO_ANSWER_VERSION,
@@ -75,6 +57,10 @@ function fakeAnswer(overrides: Record<string, unknown> = {}) {
     perguntaNecessaria: null,
     ...overrides,
   };
+}
+
+function emptyState() {
+  return { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0 };
 }
 
 const execucaoRowBase = {
@@ -127,6 +113,7 @@ beforeEach(() => {
     usuarioId: "u1",
     titulo: "Conversa",
     resumoContexto: null,
+    entidadesAtivas: null,
     status: "ativa",
     criadoEm: "t",
     atualizadoEm: "t",
@@ -160,14 +147,17 @@ beforeEach(() => {
     metadados: null,
     criadoEm: "t",
   });
-  vi.mocked(plannerMod.planInvestigation).mockResolvedValue({ ok: true, plan });
-  vi.mocked(synthesizerMod.synthesizeAnswer).mockResolvedValue({
-    answer: fakeAnswer(),
+  vi.mocked(agentMod.forceNeoAgentConclusion).mockResolvedValue(null);
+  vi.mocked(agentMod.createInitialAgentState).mockImplementation(() => ({
+    round: 0,
+    toolCallsUsed: 0,
+    searchCallsUsed: 0,
+    evidence: [],
+    executedSignatures: [],
     fontes: [],
-    tokensEntrada: 1,
-    tokensSaida: 1,
-    validationFailed: false,
-  });
+    tokensEntrada: 0,
+    tokensSaida: 0,
+  }));
 });
 
 describe("startNeoExecution", () => {
@@ -199,41 +189,110 @@ describe("startNeoExecution", () => {
   });
 });
 
-describe("runNeoExecution — entidade ambígua / pergunta bloqueante", () => {
-  it("skips the executor entirely and asks the blocking question through the answer schema", async () => {
-    vi.mocked(plannerMod.planInvestigation).mockResolvedValue({
-      ok: true,
-      plan: { ...plan, ambiguidadeBloqueante: true, perguntaNecessaria: "Qual empresa, exatamente?" },
+describe("runNeoExecution — decisão 'relatorio' direta (sem chamar nenhuma ferramenta)", () => {
+  it("emits execucao.iniciada then resposta.concluida, marking the execution concluída — no separate planning event", async () => {
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "concluido", decisao: { tipo: "relatorio", relatorio: fakeAnswer() } },
+      state: emptyState(),
     });
-    const { events } = fakeEmitter();
-    const { emitter } = fakeEmitter();
+    const { events, emitter } = fakeEmitter();
     await runNeoExecution({
       execucaoId: "exec1",
       mensagemUsuarioId: "msgU1",
       conversaId: "conv1",
       usuarioId: "u1",
-      mensagemTexto: "investigue uma empresa",
+      mensagemTexto: "pergunta simples",
       emitter,
       signal: new AbortController().signal,
     });
-    expect(executorMod.runExecutor).not.toHaveBeenCalled();
-    expect(synthesizerMod.synthesizeAnswer).toHaveBeenCalledWith(
-      expect.objectContaining({ perguntaBloqueante: "Qual empresa, exatamente?" }),
-      expect.anything(),
+    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "resposta.concluida"]);
+    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "concluida" }));
+  });
+});
+
+describe("runNeoExecution — decisão 'resposta' conversacional (sem relatório)", () => {
+  it("emits resposta.mensagem, never resposta.concluida, and persists no respostaEstruturada", async () => {
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "concluido", decisao: { tipo: "resposta", texto: "Até agora encontrei o CNPJ e o Instagram oficial." } },
+      state: emptyState(),
+    });
+    const { events, emitter } = fakeEmitter();
+    await runNeoExecution({
+      execucaoId: "exec1",
+      mensagemUsuarioId: "msgU1",
+      conversaId: "conv1",
+      usuarioId: "u1",
+      mensagemTexto: "o que você encontrou até agora?",
+      emitter,
+      signal: new AbortController().signal,
+    });
+    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "resposta.mensagem"]);
+    const resposta = events.find((e) => e.tipo === "resposta.mensagem");
+    expect(resposta && "texto" in resposta ? resposta.texto : null).toContain("CNPJ");
+    expect(mensagensRepo.atualizarMensagem).toHaveBeenCalledWith(
+      "msgA1",
+      expect.objectContaining({ status: "concluida", respostaEstruturada: null }),
     );
-    void events;
+  });
+});
+
+describe("runNeoExecution — decisão 'pergunta' (ambiguidade)", () => {
+  it("also renders as a plain conversational message — never wrapped in the full relatório schema", async () => {
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "concluido", decisao: { tipo: "pergunta", texto: "Você está falando do domínio ou da empresa de Maceió?" } },
+      state: emptyState(),
+    });
+    const { events, emitter } = fakeEmitter();
+    await runNeoExecution({
+      execucaoId: "exec1",
+      mensagemUsuarioId: "msgU1",
+      conversaId: "conv1",
+      usuarioId: "u1",
+      mensagemTexto: "procure informações sobre a Carango",
+      emitter,
+      signal: new AbortController().signal,
+    });
+    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "resposta.mensagem"]);
+  });
+});
+
+describe("runNeoExecution — decisão 'formulario' (esclarecimento estruturado)", () => {
+  it("pauses the execution instead of finishing it, and never emits resposta.concluida", async () => {
+    const formulario = {
+      titulo: "Configurar monitoramento",
+      explicacao: "Preciso da URL e da frequência.",
+      campos: [{ id: "url", rotulo: "URL", descricao: null, tipo: "url" as const, obrigatorio: true, valorSugerido: null, opcoes: [] }],
+      acaoConfirmacao: "Iniciar monitoramento",
+    };
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "concluido", decisao: { tipo: "formulario", formulario } },
+      state: emptyState(),
+    });
+    const { events, emitter } = fakeEmitter();
+    await runNeoExecution({
+      execucaoId: "exec1",
+      mensagemUsuarioId: "msgU1",
+      conversaId: "conv1",
+      usuarioId: "u1",
+      mensagemTexto: "acompanhe este site e me avise quando mudar",
+      emitter,
+      signal: new AbortController().signal,
+    });
+    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "formulario.necessario"]);
+    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith(
+      "exec1",
+      expect.objectContaining({ status: "aguardando_confirmacao", contextoPendente: expect.objectContaining({ formulario }) }),
+    );
+    expect(mensagensRepo.atualizarMensagem).not.toHaveBeenCalled();
   });
 });
 
 describe("runNeoExecution — persistência incremental (total_ferramentas, fontes, heartbeat)", () => {
   it("updates total_ferramentas and registers sources as soon as each step completes, not only at the end", async () => {
-    vi.mocked(executorMod.runExecutor).mockImplementation(async (_plan, _msg, callbacks) => {
+    vi.mocked(agentMod.runNeoAgent).mockImplementation(async (_input, callbacks) => {
       const etapaId = await callbacks.onEtapaIniciada({ nomePublico: "Pesquisando na web", ferramentaInterna: "pesquisar_web", argumentos: { q: "x" } });
       await callbacks.onEtapaConcluida(etapaId, { resumo: { resultados: [1] }, fontes: [{ url: "https://a.com", titulo: "A" }], parcial: false });
-      return {
-        outcome: { status: "sem_ferramentas" },
-        state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 1, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
-      };
+      return { outcome: { status: "concluido", decisao: { tipo: "relatorio", relatorio: fakeAnswer() } }, state: emptyState() };
     });
     const { emitter } = fakeEmitter();
     await runNeoExecution({
@@ -246,9 +305,7 @@ describe("runNeoExecution — persistência incremental (total_ferramentas, font
       signal: new AbortController().signal,
     });
 
-    // total_ferramentas is updated the moment the step finishes, before the execution as a whole ends.
     expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ totalFerramentas: 1 }));
-    // The source is persisted right away too, not deferred until finishWithAnswer.
     expect(fontesRepo.registrarFonte).toHaveBeenCalledWith(expect.objectContaining({ execucaoId: "exec1", url: "https://a.com", titulo: "A" }));
   });
 
@@ -256,14 +313,11 @@ describe("runNeoExecution — persistência incremental (total_ferramentas, font
     vi.useFakeTimers();
     try {
       const resolver: { resolve: (() => void) | undefined } = { resolve: undefined };
-      vi.mocked(executorMod.runExecutor).mockImplementation(
+      vi.mocked(agentMod.runNeoAgent).mockImplementation(
         () =>
           new Promise((resolve) => {
             resolver.resolve = () =>
-              resolve({
-                outcome: { status: "sem_ferramentas" },
-                state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
-              });
+              resolve({ outcome: { status: "concluido", decisao: { tipo: "relatorio", relatorio: fakeAnswer() } }, state: emptyState() });
           }),
       );
       const { events, emitter } = fakeEmitter();
@@ -289,37 +343,16 @@ describe("runNeoExecution — persistência incremental (total_ferramentas, font
   });
 });
 
-describe("runNeoExecution — resposta direta sem ferramenta", () => {
-  it("emits execucao.iniciada, plano.pronto and resposta.concluida, marking the execution concluída", async () => {
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
-    });
-    const { events, emitter } = fakeEmitter();
-    await runNeoExecution({
-      execucaoId: "exec1",
-      mensagemUsuarioId: "msgU1",
-      conversaId: "conv1",
-      usuarioId: "u1",
-      mensagemTexto: "pergunta simples",
-      emitter,
-      signal: new AbortController().signal,
-    });
-    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "plano.pronto", "resposta.concluida"]);
-    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "concluida" }));
-  });
-});
-
 describe("runNeoExecution — ação persistente aguardando confirmação", () => {
-  it("pauses, persists the pending call, and never calls the synthesizer", async () => {
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
+  it("pauses, persists the pending call, and never persists a relatório", async () => {
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
       outcome: {
         status: "aguardando_confirmacao",
         pendentes: [{ callId: "c1", name: "monitor_excluir", args: { monitoramentoId: "m1" } }],
         descricao: "Excluir o monitoramento m1.",
         ferramentaInterna: "monitor_excluir",
       },
-      state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
+      state: emptyState(),
     });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
@@ -331,8 +364,8 @@ describe("runNeoExecution — ação persistente aguardando confirmação", () =
       emitter,
       signal: new AbortController().signal,
     });
-    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "plano.pronto", "confirmacao.necessaria"]);
-    expect(synthesizerMod.synthesizeAnswer).not.toHaveBeenCalled();
+    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "confirmacao.necessaria"]);
+    expect(mensagensRepo.atualizarMensagem).not.toHaveBeenCalled();
     expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith(
       "exec1",
       expect.objectContaining({ status: "aguardando_confirmacao", contextoPendente: expect.anything() }),
@@ -341,26 +374,15 @@ describe("runNeoExecution — ação persistente aguardando confirmação", () =
 });
 
 describe("runNeoExecution — cancelamento", () => {
-  it("with evidence already gathered: still produces a partial answer instead of losing the work", async () => {
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
+  it("with a concrete extracted fact already gathered: still produces a partial report instead of losing the work", async () => {
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
       outcome: { status: "cancelada" },
       state: {
-        round: 1,
-        toolCallsUsed: 1, searchCallsUsed: 0,
-        evidence: [{ ferramenta: "pesquisar_web", nomePublico: "Pesquisando", argumentos: {}, ok: true, resumo: {} }],
-        executedSignatures: [],
-        fontes: [],
-        tokensEntrada: 0,
-        tokensSaida: 0,
-        objetivos: [],
+        ...emptyState(),
+        evidence: [
+          { ferramenta: "extrair_dados", nomePublico: "Extraindo informações", argumentos: { url: "https://a.com" }, ok: true, resumo: { json: { cnpj: "12.345.678/0001-99" } } },
+        ],
       },
-    });
-    vi.mocked(synthesizerMod.synthesizeAnswer).mockResolvedValue({
-      answer: fakeAnswer({ status: "completo" }),
-      fontes: [],
-      tokensEntrada: 1,
-      tokensSaida: 1,
-      validationFailed: false,
     });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
@@ -376,13 +398,11 @@ describe("runNeoExecution — cancelamento", () => {
     expect(events.map((e) => e.tipo)).toContain("execucao.cancelada");
     const resposta = events.find((e) => e.tipo === "resposta.concluida");
     expect(resposta && "resposta" in resposta ? resposta.resposta.status : null).toBe("parcial");
+    expect(resposta && "resposta" in resposta ? JSON.stringify(resposta.resposta.achados) : "").toContain("12.345.678/0001-99");
   });
 
-  it("without any evidence: never calls the synthesizer and marks the execution cancelada", async () => {
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "cancelada" },
-      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
-    });
+  it("without any evidence: marks the execution cancelada and never fabricates a report", async () => {
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({ outcome: { status: "cancelada" }, state: emptyState() });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
       execucaoId: "exec1",
@@ -393,18 +413,18 @@ describe("runNeoExecution — cancelamento", () => {
       emitter,
       signal: new AbortController().signal,
     });
-    expect(synthesizerMod.synthesizeAnswer).not.toHaveBeenCalled();
-    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "plano.pronto", "execucao.cancelada"]);
+    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "execucao.cancelada"]);
     expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "cancelada" }));
   });
 });
 
 describe("runNeoExecution — limite atingido", () => {
-  it("emits execucao.parcial before the final answer and still produces a report", async () => {
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "limite_atingido", motivo: "Número máximo de rodadas atingido." },
-      state: { round: 10, toolCallsUsed: 20, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
+  it("emits execucao.parcial, then tries one forced conclusion call before finishing", async () => {
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "limite_atingido", motivo: "O número máximo de rodadas desta análise foi atingido." },
+      state: emptyState(),
     });
+    vi.mocked(agentMod.forceNeoAgentConclusion).mockResolvedValue({ tipo: "relatorio", relatorio: fakeAnswer({ status: "completo" }) });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
       execucaoId: "exec1",
@@ -415,40 +435,26 @@ describe("runNeoExecution — limite atingido", () => {
       emitter,
       signal: new AbortController().signal,
     });
-    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "plano.pronto", "execucao.parcial", "resposta.concluida"]);
-    expect(synthesizerMod.synthesizeAnswer).toHaveBeenCalledWith(
-      expect.objectContaining({ limiteAtingidoMotivo: "Número máximo de rodadas atingido." }),
-      expect.anything(),
-    );
+    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "execucao.parcial", "resposta.concluida"]);
+    expect(agentMod.forceNeoAgentConclusion).toHaveBeenCalled();
+    // A forced conclusion is always downgraded to parcial, even if the model itself said "completo" —
+    // reaching the time limit at all is evidence the answer isn't the same as reaching it naturally.
+    const resposta = events.find((e) => e.tipo === "resposta.concluida");
+    expect(resposta && "resposta" in resposta ? resposta.resposta.status : null).toBe("parcial");
   });
-});
 
-describe("runNeoExecution — falha na síntese com relatório parcial de evidências", () => {
-  it("overrides the synthesizer's generic text-only fallback with the evidence-based report when there's a concrete extracted value", async () => {
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "sem_ferramentas" },
+  it("falls back to the deterministic evidence-based report when the forced conclusion call also fails", async () => {
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "limite_atingido", motivo: "O tempo disponível para esta análise se esgotou." },
       state: {
-        round: 1,
-        toolCallsUsed: 2,
-        searchCallsUsed: 1,
+        ...emptyState(),
         evidence: [
           { ferramenta: "pesquisar_web", nomePublico: "Pesquisando na web", argumentos: { q: "x" }, ok: true, resumo: { resultados: [{ url: "https://a.com" }] } },
           { ferramenta: "extrair_dados", nomePublico: "Extraindo informações", argumentos: { url: "https://a.com" }, ok: true, resumo: { json: { cnpj: "12.345.678/0001-99" } } },
         ],
-        executedSignatures: [],
-        fontes: [{ url: "https://a.com" }],
-        tokensEntrada: 0,
-        tokensSaida: 0,
-        objetivos: [],
       },
     });
-    vi.mocked(synthesizerMod.synthesizeAnswer).mockResolvedValue({
-      answer: fakeAnswer({ titulo: "Resposta do Neo", blocos: [{ tipo: "texto", titulo: null, conteudo: "genérico", fontesIds: [] }] }),
-      fontes: [],
-      tokensEntrada: 1,
-      tokensSaida: 1,
-      validationFailed: true,
-    });
+    vi.mocked(agentMod.forceNeoAgentConclusion).mockResolvedValue(null);
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
       execucaoId: "exec1",
@@ -461,20 +467,55 @@ describe("runNeoExecution — falha na síntese com relatório parcial de evidê
     });
     const resposta = events.find((e) => e.tipo === "resposta.concluida");
     const answer = resposta && "resposta" in resposta ? resposta.resposta : null;
-    // Not the synthesizer's generic "Resposta do Neo" fallback — the deterministic
-    // evidence-based one, built from the actual extracted value.
-    expect(answer?.titulo).not.toBe("Resposta do Neo");
+    expect(answer?.status).toBe("parcial");
     expect(JSON.stringify(answer?.achados)).toContain("12.345.678/0001-99");
     expect(JSON.stringify(answer?.achados)).not.toContain("Pesquisando na web");
-    expect(answer?.status).toBe("parcial");
+  });
+
+  it("never attempts a forced conclusion call when the synthesis reserve is already exhausted", async () => {
+    const exhaustedBudget = {
+      startedAt: Date.now(),
+      totalBudgetMs: 240_000,
+      synthesisReserveMs: 45_000,
+      elapsedMs: () => 285_000,
+      toolsRemainingMs: () => 0,
+      synthesisRemainingMs: () => 0,
+      hasRoundBudget: () => false,
+      isExhausted: () => true,
+      hardDeadlineMs: () => 285_000,
+    };
+    vi.mocked(budgetMod.createExecutionBudget).mockReturnValueOnce(exhaustedBudget);
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "limite_atingido", motivo: "O tempo disponível para esta análise se esgotou." },
+      state: {
+        ...emptyState(),
+        evidence: [{ ferramenta: "pesquisar_web", nomePublico: "Pesquisando na web", argumentos: { q: "x" }, ok: true, resumo: { resultados: [{ url: "https://a.com" }] } }],
+      },
+    });
+    const { events, emitter } = fakeEmitter();
+    await runNeoExecution({
+      execucaoId: "exec1",
+      mensagemUsuarioId: "msgU1",
+      conversaId: "conv1",
+      usuarioId: "u1",
+      mensagemTexto: "pergunta",
+      emitter,
+      signal: new AbortController().signal,
+    });
+    expect(agentMod.forceNeoAgentConclusion).not.toHaveBeenCalled();
+    const resposta = events.find((e) => e.tipo === "resposta.concluida");
+    // Only a plain search ran (no extraction) — never enough for a "parcial" report on its own;
+    // it must render as "nao_concluido", not a fabricated report built from step metadata.
+    expect(resposta && "resposta" in resposta ? resposta.resposta.status : null).toBe("nao_concluido");
+    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "parcial" }));
   });
 });
 
 describe("runNeoExecution — falha", () => {
-  it("marks the execution and message as falhou and never calls the synthesizer", async () => {
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "falhou", erroPublico: "Não foi possível iniciar a investigação." },
-      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
+  it("marks the execution and message as falhou", async () => {
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "falhou", erroPublico: "Não foi possível iniciar a análise." },
+      state: emptyState(),
     });
     const { events, emitter } = fakeEmitter();
     await runNeoExecution({
@@ -486,42 +527,26 @@ describe("runNeoExecution — falha", () => {
       emitter,
       signal: new AbortController().signal,
     });
-    expect(synthesizerMod.synthesizeAnswer).not.toHaveBeenCalled();
-    expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "plano.pronto", "execucao.falhou"]);
-    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "falhou" }));
-  });
-
-  it("when the planner itself fails, never calls the executor", async () => {
-    vi.mocked(plannerMod.planInvestigation).mockResolvedValue({ ok: false, error: { type: "provider_error", message: "erro", httpStatus: 502 } });
-    const { events, emitter } = fakeEmitter();
-    await runNeoExecution({
-      execucaoId: "exec1",
-      mensagemUsuarioId: "msgU1",
-      conversaId: "conv1",
-      usuarioId: "u1",
-      mensagemTexto: "pergunta",
-      emitter,
-      signal: new AbortController().signal,
-    });
-    expect(executorMod.runExecutor).not.toHaveBeenCalled();
     expect(events.map((e) => e.tipo)).toEqual(["execucao.iniciada", "execucao.falhou"]);
+    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "falhou" }));
   });
 });
 
 describe("runNeoExecution — continuação de conversa", () => {
-  it("passes the conversation's rolling summary through to the planner", async () => {
+  it("passes the conversation's rolling summary through to the agent", async () => {
     vi.mocked(conversasRepo.buscarConversaPorId).mockResolvedValue({
       id: "conv1",
       usuarioId: "u1",
       titulo: "Conversa",
       resumoContexto: "Resumo anterior sobre o alvo.",
+      entidadesAtivas: null,
       status: "ativa",
       criadoEm: "t",
       atualizadoEm: "t",
     });
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "concluido", decisao: { tipo: "relatorio", relatorio: fakeAnswer() } },
+      state: emptyState(),
     });
     const { emitter } = fakeEmitter();
     await runNeoExecution({
@@ -529,48 +554,19 @@ describe("runNeoExecution — continuação de conversa", () => {
       mensagemUsuarioId: "msgU1",
       conversaId: "conv1",
       usuarioId: "u1",
-      mensagemTexto: "continue a investigação",
+      mensagemTexto: "continue a análise",
       emitter,
       signal: new AbortController().signal,
     });
-    expect(plannerMod.planInvestigation).toHaveBeenCalledWith(
+    expect(agentMod.runNeoAgent).toHaveBeenCalledWith(
       expect.objectContaining({ resumoContexto: "Resumo anterior sobre o alvo." }),
+      expect.anything(),
       expect.anything(),
     );
   });
 });
 
-describe("runNeoExecution — informação ausente (campos encontrados/ausentes)", () => {
-  it("computes camposEncontrados as camposSolicitados minus lacunas", async () => {
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
-    });
-    vi.mocked(synthesizerMod.synthesizeAnswer).mockResolvedValue({
-      answer: fakeAnswer({ lacunas: [{ tipo: "nao_encontrado", descricao: "telefone" }] }),
-      fontes: [],
-      tokensEntrada: 1,
-      tokensSaida: 1,
-      validationFailed: false,
-    });
-    const { emitter } = fakeEmitter();
-    await runNeoExecution({
-      execucaoId: "exec1",
-      mensagemUsuarioId: "msgU1",
-      conversaId: "conv1",
-      usuarioId: "u1",
-      mensagemTexto: "pergunta",
-      emitter,
-      signal: new AbortController().signal,
-    });
-    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith(
-      "exec1",
-      expect.objectContaining({ camposEncontrados: ["site oficial"], camposAusentes: ["telefone"] }),
-    );
-  });
-});
-
-describe("runNeoExecution — continuar investigação (seed a partir de execução anterior)", () => {
+describe("runNeoExecution — continuar análise (seed a partir de execução anterior)", () => {
   it("seeds resumeState from the previous falhou/parcial execution's completed steps and sources, deduping them so the model doesn't re-pay for the same query", async () => {
     vi.mocked(execucoesRepo.buscarExecucaoPorId).mockImplementation(async (_usuarioId: string, id: string) =>
       id === "exec-anterior" ? { ...execucaoRowBase, id: "exec-anterior", status: "parcial" } : execucaoRowBase,
@@ -591,12 +587,9 @@ describe("runNeoExecution — continuar investigação (seed a partir de execuç
         erroPublico: null,
       },
     ]);
-    vi.mocked(fontesRepo.listarFontes).mockResolvedValue([
-      { id: "f1", execucaoId: "exec-anterior", url: "https://a.com", titulo: "A", dominio: "a.com", dataObservacao: "t", metadados: null, criadoEm: "t" },
-    ]);
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "concluido", decisao: { tipo: "relatorio", relatorio: fakeAnswer() } },
+      state: emptyState(),
     });
     const { emitter } = fakeEmitter();
     await runNeoExecution({
@@ -609,10 +602,9 @@ describe("runNeoExecution — continuar investigação (seed a partir de execuç
       signal: new AbortController().signal,
       continuarExecucaoId: "exec-anterior",
     });
-    const options = vi.mocked(executorMod.runExecutor).mock.calls[0]![3];
+    const options = vi.mocked(agentMod.runNeoAgent).mock.calls[0]![2];
     expect(options.resumeState?.evidence).toEqual([expect.objectContaining({ ferramenta: "pesquisar_web", ok: true })]);
     expect(options.resumeState?.executedSignatures).toHaveLength(1);
-    expect(options.resumeState?.fontes).toEqual([expect.objectContaining({ url: "https://a.com" })]);
     // Fresh round/tool-call counters — this is a brand-new execution with its own full budget,
     // only the *content* carries over, never the exhausted limits from the previous attempt.
     expect(options.resumeState?.round).toBe(0);
@@ -623,9 +615,9 @@ describe("runNeoExecution — continuar investigação (seed a partir de execuç
     vi.mocked(execucoesRepo.buscarExecucaoPorId).mockImplementation(async (_usuarioId: string, id: string) =>
       id === "exec-ativa" ? { ...execucaoRowBase, id: "exec-ativa", status: "executando" } : execucaoRowBase,
     );
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 0, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "concluido", decisao: { tipo: "relatorio", relatorio: fakeAnswer() } },
+      state: emptyState(),
     });
     const { emitter } = fakeEmitter();
     await runNeoExecution({
@@ -638,56 +630,8 @@ describe("runNeoExecution — continuar investigação (seed a partir de execuç
       signal: new AbortController().signal,
       continuarExecucaoId: "exec-ativa",
     });
-    const options = vi.mocked(executorMod.runExecutor).mock.calls[0]![3];
+    const options = vi.mocked(agentMod.runNeoAgent).mock.calls[0]![2];
     expect(options.resumeState).toBeUndefined();
-  });
-});
-
-describe("runNeoExecution — orçamento esgotado (fallback determinístico sem chamada à LLM)", () => {
-  it("builds the deterministic evidence-based report and never calls the synthesizer when there's no time left in the synthesis reserve", async () => {
-    const exhaustedBudget = {
-      startedAt: Date.now(),
-      totalBudgetMs: 240_000,
-      synthesisReserveMs: 45_000,
-      elapsedMs: () => 285_000,
-      toolsRemainingMs: () => 0,
-      synthesisRemainingMs: () => 0,
-      hasRoundBudget: () => false,
-      isExhausted: () => true,
-      hardDeadlineMs: () => 285_000,
-    };
-    vi.mocked(budgetMod.createExecutionBudget).mockReturnValueOnce(exhaustedBudget);
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "limite_atingido", motivo: "O tempo disponível para esta investigação se esgotou." },
-      state: {
-        round: 4,
-        toolCallsUsed: 3,
-        searchCallsUsed: 3,
-        evidence: [{ ferramenta: "pesquisar_web", nomePublico: "Pesquisando na web", argumentos: { q: "x" }, ok: true, resumo: { resultados: [{ url: "https://a.com" }] } }],
-        executedSignatures: [],
-        fontes: [{ url: "https://a.com" }],
-        tokensEntrada: 0,
-        tokensSaida: 0,
-        objetivos: [],
-      },
-    });
-    const { events, emitter } = fakeEmitter();
-    await runNeoExecution({
-      execucaoId: "exec1",
-      mensagemUsuarioId: "msgU1",
-      conversaId: "conv1",
-      usuarioId: "u1",
-      mensagemTexto: "pergunta",
-      emitter,
-      signal: new AbortController().signal,
-    });
-    expect(synthesizerMod.synthesizeAnswer).not.toHaveBeenCalled();
-    const resposta = events.find((e) => e.tipo === "resposta.concluida");
-    // Only a plain search ran (no extraction) — never enough for a "parcial" report on its own;
-    // it must render as "nao_concluido", not a fabricated report built from step metadata.
-    expect(resposta && "resposta" in resposta ? resposta.resposta.status : null).toBe("nao_concluido");
-    expect(resposta && "resposta" in resposta ? JSON.stringify(resposta.resposta.achados) : "").not.toContain("Pesquisando na web");
-    expect(execucoesRepo.atualizarExecucao).toHaveBeenCalledWith("exec1", expect.objectContaining({ status: "parcial" }));
   });
 });
 
@@ -696,18 +640,17 @@ describe("resumeNeoExecutionAfterConfirmation", () => {
     ...execucaoRowBase,
     status: "aguardando_confirmacao" as const,
     contextoPendente: {
-      state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
+      state: emptyState(),
       pendentes: [{ callId: "c1", name: "monitor_excluir", args: { monitoramentoId: "m1" } }],
-      plan,
       mensagemId: "msgA1",
     },
   };
 
   it("confirmação aprovada: resumes with resumeConfirmedCalls set to the saved pending calls", async () => {
     vi.mocked(execucoesRepo.buscarExecucaoPorId).mockResolvedValue(pendingExecucao);
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "concluido", decisao: { tipo: "relatorio", relatorio: fakeAnswer() } },
+      state: emptyState(),
     });
     const { emitter } = fakeEmitter();
     await resumeNeoExecutionAfterConfirmation({
@@ -718,9 +661,8 @@ describe("resumeNeoExecutionAfterConfirmation", () => {
       emitter,
       signal: new AbortController().signal,
     });
-    expect(executorMod.runExecutor).toHaveBeenCalledWith(
-      plan,
-      expect.any(String),
+    expect(agentMod.runNeoAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessage: expect.any(String) }),
       expect.anything(),
       expect.objectContaining({ resumeConfirmedCalls: pendingExecucao.contextoPendente.pendentes }),
     );
@@ -728,9 +670,9 @@ describe("resumeNeoExecutionAfterConfirmation", () => {
 
   it("confirmação recusada: never executes the pending call, records it as declined evidence instead", async () => {
     vi.mocked(execucoesRepo.buscarExecucaoPorId).mockResolvedValue(pendingExecucao);
-    vi.mocked(executorMod.runExecutor).mockResolvedValue({
-      outcome: { status: "sem_ferramentas" },
-      state: { round: 1, toolCallsUsed: 1, searchCallsUsed: 0, evidence: [], executedSignatures: [], fontes: [], tokensEntrada: 0, tokensSaida: 0, objetivos: [] },
+    vi.mocked(agentMod.runNeoAgent).mockResolvedValue({
+      outcome: { status: "concluido", decisao: { tipo: "relatorio", relatorio: fakeAnswer() } },
+      state: emptyState(),
     });
     const { emitter } = fakeEmitter();
     await resumeNeoExecutionAfterConfirmation({
@@ -741,9 +683,9 @@ describe("resumeNeoExecutionAfterConfirmation", () => {
       emitter,
       signal: new AbortController().signal,
     });
-    const call = vi.mocked(executorMod.runExecutor).mock.calls[0]!;
-    expect(call[3].resumeConfirmedCalls).toBeUndefined();
-    expect(call[3].resumeState?.evidence).toEqual([
+    const call = vi.mocked(agentMod.runNeoAgent).mock.calls[0]!;
+    expect(call[2].resumeConfirmedCalls).toBeUndefined();
+    expect(call[2].resumeState?.evidence).toEqual([
       expect.objectContaining({ ferramenta: "monitor_excluir", ok: false, erroPublico: "Ação não confirmada pelo usuário." }),
     ]);
   });
@@ -760,7 +702,7 @@ describe("resumeNeoExecutionAfterConfirmation", () => {
       signal: new AbortController().signal,
     });
     expect(events.map((e) => e.tipo)).toEqual(["execucao.falhou"]);
-    expect(executorMod.runExecutor).not.toHaveBeenCalled();
+    expect(agentMod.runNeoAgent).not.toHaveBeenCalled();
   });
 });
 
