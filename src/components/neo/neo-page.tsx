@@ -11,6 +11,7 @@ import { NeoEmptyState } from "@/components/neo/neo-empty-state";
 import { MensagemAssistente, MensagemUsuario } from "@/components/neo/mensagem";
 import { ExecutionProgress } from "@/components/neo/execution-progress";
 import { ConfirmationCard } from "@/components/neo/confirmation-card";
+import { ClarificationFormCard } from "@/components/neo/clarification-form";
 import { AnswerView } from "@/components/neo/answer-view";
 import { useNeoConversa, useNeoMensagens } from "@/hooks/use-neo-conversas";
 import { useNeoStream } from "@/hooks/use-neo-stream";
@@ -92,7 +93,7 @@ export function NeoPage({ conversaId }: { conversaId?: string }) {
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [mensagensQuery.data, stream.state.etapas.length, stream.state.resposta]);
+  }, [mensagensQuery.data, stream.state.etapas.length, stream.state.resposta, stream.state.respostaTexto, stream.state.formulario]);
 
   const criarPrimeiraConversa = React.useCallback(
     async (mensagem: string) => {
@@ -206,9 +207,23 @@ export function NeoPage({ conversaId }: { conversaId?: string }) {
                 />
               ) : null}
 
+              {stream.state.formulario ? (
+                <ClarificationFormCard
+                  key={stream.state.formulario.mensagemId}
+                  formulario={stream.state.formulario.formulario}
+                  onEnviar={(valores) => stream.enviarFormulario(stream.state.formulario!.execucaoId, valores)}
+                />
+              ) : null}
+
               {stream.state.resposta ? (
                 <div className="rounded-2xl rounded-tl-sm border border-border bg-white p-4 shadow-sm sm:p-5">
                   <AnswerView mensagemId={stream.state.mensagemId ?? ""} answer={stream.state.resposta} />
+                </div>
+              ) : null}
+
+              {stream.state.respostaTexto ? (
+                <div className="rounded-2xl rounded-tl-sm border border-border bg-white p-4 text-sm text-text-primary shadow-sm sm:p-5">
+                  <p className="whitespace-pre-wrap break-words">{stream.state.respostaTexto}</p>
                 </div>
               ) : null}
 

@@ -1,52 +1,53 @@
 import "server-only";
 import { z } from "zod";
-import { NEO_TOOL_NAMES } from "@/server/neo/tool-names";
+import { neoAnswerSchema } from "@/lib/neo/answer";
+import { neoClarificationFormSchema } from "@/lib/neo/clarification-form";
 
 /**
- * NeoPlan — Structured Output schema for Phase 1 (understanding +
- * planning). Entirely internal: the frontend never receives this object
- * directly, only a translated, friendly summary of `etapasPlanejadas`
- * turned into "etapa.iniciada"/"etapa.concluida" events (see orchestrator.ts).
- * All fields required; optional ones are `.nullable()` for OpenAI's strict
- * Structured Outputs mode.
+ * NeoAgentTurn — the single Structured Output schema every round of the
+ * agent loop (src/server/neo/agent.ts) can produce whenever it decides NOT
+ * to call a tool. The model chooses exactly one of these per turn: a plain
+ * conversational reply, a clarifying question, an inline form for
+ * indispensable structured input, or the final consolidated report. There is
+ * no separate planning/evaluation/synthesis schema anymore — this replaces
+ * all three; the same call that reads tool results decides the next step.
  */
-export const neoPlanSchema = z.object({
-  objetivoInterpretado: z.string(),
-  ambiguidadeBloqueante: z.boolean(),
-  perguntaNecessaria: z.string().nullable(),
-  etapasPlanejadas: z.array(z.string()),
-  dadosNecessarios: z.array(z.string()),
-  criteriosConclusao: z.array(z.string()),
-  ferramentasProvaveis: z.array(z.enum(NEO_TOOL_NAMES)),
-  execucaoParalelaPossivel: z.boolean(),
-  riscoConfusaoEntidades: z.string().nullable(),
-  camposSolicitados: z.array(z.string()),
-  formatoRelatorioEsperado: z.string(),
+export const neoRespostaTurnoSchema = z.object({
+  tipo: z.literal("resposta"),
+  texto: z.string(),
 });
-export type NeoPlan = z.infer<typeof neoPlanSchema>;
+
+export const neoPerguntaTurnoSchema = z.object({
+  tipo: z.literal("pergunta"),
+  texto: z.string(),
+});
+
+export const neoFormularioTurnoSchema = z.object({
+  tipo: z.literal("formulario"),
+  formulario: neoClarificationFormSchema,
+});
+
+export const neoRelatorioTurnoSchema = z.object({
+  tipo: z.literal("relatorio"),
+  relatorio: neoAnswerSchema,
+});
+
+export const neoAgentTurnSchema = z.discriminatedUnion("tipo", [
+  neoRespostaTurnoSchema,
+  neoPerguntaTurnoSchema,
+  neoFormularioTurnoSchema,
+  neoRelatorioTurnoSchema,
+]);
+export type NeoAgentTurn = z.infer<typeof neoAgentTurnSchema>;
 
 /**
- * Verifiable per-request objectives, tracked across the executor's tool-calling
- * rounds (src/server/neo/objectives.ts, executor.ts) so the loop can stop as
- * soon as what the user actually asked for has been resolved — instead of
- * continuing just because tool budget is still available.
+ * OpenAI's Structured Outputs mode requires the root schema to have
+ * `type: "object"` — a discriminated union can't be the root schema itself
+ * (see node_modules/openai/helpers/zod.js `toStrictJsonSchema`). This is the
+ * schema actually passed as `text.format` in every agent.ts call; the
+ * discriminated union lives one level down, as its only field.
  */
-export const NEO_OBJETIVO_STATUS = ["pendente", "encontrado", "parcial", "nao_confirmado", "nao_encontrado"] as const;
-export type NeoObjetivoStatus = (typeof NEO_OBJETIVO_STATUS)[number];
-
-export const neoObjetivoSchema = z.object({
-  descricao: z.string(),
-  status: z.enum(NEO_OBJETIVO_STATUS),
-});
-export type NeoObjetivo = z.infer<typeof neoObjetivoSchema>;
-
-/** Structured Output schema for the lightweight per-round objective-coverage check. */
-export const neoAvaliacaoObjetivosSchema = z.object({
-  objetivos: z.array(neoObjetivoSchema),
-  podeEncerrar: z.boolean(),
-  motivo: z.string().nullable(),
-});
-export type NeoAvaliacaoObjetivos = z.infer<typeof neoAvaliacaoObjetivosSchema>;
+export const neoAgentTurnResponseSchema = z.object({ decisao: neoAgentTurnSchema });
 
 /** Rolling conversation summary, refreshed by the same NEO_MODEL when history grows too long. */
 export const neoResumoConversaSchema = z.object({

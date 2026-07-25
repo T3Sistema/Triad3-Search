@@ -1,7 +1,6 @@
 import "server-only";
 import { NEO_ANSWER_VERSION, pruneUnusedFontes, type NeoAchado, type NeoAnswer, type NeoFato, type NeoFonte } from "@/lib/neo/answer";
 import { sanitizeBannedTerms } from "@/lib/neo/sanitize-terms";
-import type { NeoObjetivo } from "@/server/neo/schemas";
 
 /**
  * Deterministic, non-LLM report builder. Used whenever a real synthesis call
@@ -151,18 +150,11 @@ export function buildEvidenceFallbackAnswer(params: {
   motivo: string;
   etapas: FallbackEtapaLike[];
   fontes: FallbackFonteLike[];
-  /** Final tracked objective state from the executor, when available — drives lacunas without naming any tool. */
-  objetivos?: NeoObjetivo[];
 }): NeoAnswer {
-  const objetivos = params.objetivos ?? [];
   const extractedFacts = collectExtractedFacts(params.etapas);
 
   const allFontes = assignFallbackFonteIds(params.fontes);
   const fonteIdByUrl = new Map(allFontes.map((f) => [f.url, f.id]));
-
-  const lacunasDeObjetivos = objetivos
-    .filter((o) => o.status !== "encontrado")
-    .map((o) => ({ tipo: "nao_encontrado" as const, descricao: o.descricao }));
 
   if (extractedFacts.length === 0) {
     const answer: NeoAnswer = {
@@ -174,7 +166,7 @@ export function buildEvidenceFallbackAnswer(params: {
       achados: [],
       respostaDireta: "Os resultados localizados não apresentaram evidências suficientes. Você pode ajustar a solicitação ou tentar novamente.",
       blocos: [],
-      lacunas: lacunasDeObjetivos,
+      lacunas: [],
       matrizEvidencias: [],
       fontes: [],
       observacoes: [],
@@ -218,17 +210,17 @@ export function buildEvidenceFallbackAnswer(params: {
   const answer: NeoAnswer = {
     version: NEO_ANSWER_VERSION,
     status: "parcial",
-    titulo: fatos[0] ? `Dados confirmados: ${fatos.map((f) => f.rotulo).join(", ")}` : "Relatório parcial",
+    titulo: `Dados confirmados: ${fatos.map((f) => f.rotulo).join(", ")}`,
     objetivo: "",
     indicadoresPrincipais,
     achados,
     respostaDireta,
     blocos,
-    lacunas: lacunasDeObjetivos,
+    lacunas: [],
     matrizEvidencias,
     fontes: allFontes,
     observacoes: [],
-    proximasAcoes: lacunasDeObjetivos.length > 0 ? ["Continue esta análise para tentar confirmar os dados restantes."] : [],
+    proximasAcoes: ["Continue esta análise para tentar confirmar dados adicionais."],
     perguntaNecessaria: null,
   };
 

@@ -4,6 +4,7 @@ import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { parseNeoEvent, type NeoEvent } from "@/lib/neo/events";
 import type { NeoAnswer } from "@/lib/neo/answer";
+import type { NeoClarificationForm, NeoFormularioValores } from "@/lib/neo/clarification-form";
 import { ApiRequestError } from "@/lib/api-client";
 
 export interface NeoEtapaEstado {
@@ -22,6 +23,12 @@ export interface NeoConfirmacaoEstado {
   descricao: string;
 }
 
+export interface NeoFormularioEstado {
+  execucaoId: string;
+  mensagemId: string;
+  formulario: NeoClarificationForm;
+}
+
 export type NeoStreamStatus = "idle" | "streaming" | "aguardando_confirmacao" | "concluida" | "cancelada" | "erro";
 
 export interface NeoStreamState {
@@ -32,7 +39,10 @@ export interface NeoStreamState {
   etapasPrevistas: string[];
   etapas: NeoEtapaEstado[];
   confirmacao: NeoConfirmacaoEstado | null;
+  formulario: NeoFormularioEstado | null;
   resposta: NeoAnswer | null;
+  /** A plain conversational reply or clarifying question — never wrapped in the full relatório structure. */
+  respostaTexto: string | null;
   motivoParcial: string | null;
   erro: string | null;
   /** True only when the stream itself stalled (no data at all for a while) — distinct from a normal `erro` the server reported. Lets the UI point the user at "Atualizar" instead of implying the investigation itself failed. */
@@ -47,7 +57,9 @@ const INITIAL_STATE: NeoStreamState = {
   etapasPrevistas: [],
   etapas: [],
   confirmacao: null,
+  formulario: null,
   resposta: null,
+  respostaTexto: null,
   motivoParcial: null,
   erro: null,
   conexaoPerdida: false,
@@ -107,14 +119,22 @@ function reduce(state: NeoStreamState, action: Action): NeoStreamState {
           descricao: evento.descricao,
         },
       };
+    case "formulario.necessario":
+      return {
+        ...state,
+        status: "aguardando_confirmacao",
+        formulario: { execucaoId: evento.execucaoId, mensagemId: evento.mensagemId, formulario: evento.formulario },
+      };
     case "execucao.parcial":
       return { ...state, motivoParcial: evento.motivo };
     case "resposta.concluida":
-      return { ...state, status: "concluida", resposta: evento.resposta, confirmacao: null };
+      return { ...state, status: "concluida", resposta: evento.resposta, confirmacao: null, formulario: null };
+    case "resposta.mensagem":
+      return { ...state, status: "concluida", respostaTexto: evento.texto, confirmacao: null, formulario: null };
     case "execucao.cancelada":
-      return { ...state, status: "cancelada", confirmacao: null };
+      return { ...state, status: "cancelada", confirmacao: null, formulario: null };
     case "execucao.falhou":
-      return { ...state, status: "erro", erro: evento.mensagem, confirmacao: null, conexaoPerdida: false };
+      return { ...state, status: "erro", erro: evento.mensagem, confirmacao: null, formulario: null, conexaoPerdida: false };
     case "heartbeat":
       return state;
     default:
@@ -238,6 +258,20 @@ export function useNeoStream(conversaId: string | undefined) {
     [runStream],
   );
 
+  const enviarFormulario = React.useCallback(
+    (execucaoId: string, valores: NeoFormularioValores) => {
+      void runStream((signal) =>
+        fetch(`/api/triad3/neo/execucoes/${execucaoId}/formulario`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ valores }),
+          signal,
+        }),
+      );
+    },
+    [runStream],
+  );
+
   const cancelar = React.useCallback(() => {
     abortRef.current?.abort();
     const execucaoId = state.execucaoId;
@@ -254,6 +288,7 @@ export function useNeoStream(conversaId: string | undefined) {
     state,
     iniciar,
     confirmar,
+    enviarFormulario,
     cancelar,
     reset,
     emExecucao: state.status === "streaming" || state.status === "aguardando_confirmacao",

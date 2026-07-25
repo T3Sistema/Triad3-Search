@@ -57,19 +57,6 @@ describe("buildEvidenceFallbackAnswer — sem fatos concretos (NÃO CONCLUÍDO)"
     expect(answer.fontes).toEqual([]);
   });
 
-  it("lists unresolved tracked objectives as lacunas, never mentioning a tool or step", () => {
-    const answer = buildEvidenceFallbackAnswer({
-      motivo: "x",
-      etapas: [],
-      fontes: [],
-      objetivos: [
-        { descricao: "CNPJ", status: "nao_encontrado" },
-        { descricao: "Instagram oficial", status: "encontrado" },
-      ],
-    });
-    expect(answer.lacunas).toEqual([{ tipo: "nao_encontrado", descricao: "CNPJ" }]);
-  });
-
   it("offers Tentar novamente / Ajustar solicitação semantics via nao_concluido status, never a fabricated matrix", () => {
     const answer = buildEvidenceFallbackAnswer({ motivo: "x", etapas: [], fontes: [] });
     expect(answer.status).toBe("nao_concluido");
@@ -135,25 +122,13 @@ describe("buildEvidenceFallbackAnswer — com valores extraídos (PARCIAL)", () 
     expect(answer.status).toBe("parcial");
   });
 
-  it("suggests continuing only when a tracked objective is still unresolved", () => {
-    const semLacuna = buildEvidenceFallbackAnswer({
+  it("always suggests continuing when it produces a parcial report — the fallback itself is a sign synthesis didn't reach a clean terminal decision", () => {
+    const answer = buildEvidenceFallbackAnswer({
       motivo: "x",
       etapas: [{ ferramenta: "extrair_dados", nomePublico: "Extraindo informações", ok: true, resumo: { json: { campo: "valor" } } }],
       fontes: [],
-      objetivos: [{ descricao: "campo", status: "encontrado" }],
     });
-    expect(semLacuna.proximasAcoes).toEqual([]);
-
-    const comLacuna = buildEvidenceFallbackAnswer({
-      motivo: "x",
-      etapas: [{ ferramenta: "extrair_dados", nomePublico: "Extraindo informações", ok: true, resumo: { json: { campo: "valor" } } }],
-      fontes: [],
-      objetivos: [
-        { descricao: "campo", status: "encontrado" },
-        { descricao: "outro campo", status: "nao_encontrado" },
-      ],
-    });
-    expect(comLacuna.proximasAcoes.length).toBeGreaterThan(0);
+    expect(answer.proximasAcoes.length).toBeGreaterThan(0);
   });
 
   it("never lets a banned term through, even if the motivo string contains one", () => {

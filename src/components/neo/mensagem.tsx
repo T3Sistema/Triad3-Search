@@ -54,6 +54,16 @@ export function MensagemAssistente({ mensagem, ...acoes }: { mensagem: NeoMensag
     );
   }
 
+  if (mensagem.status === "concluida") {
+    // A plain conversational reply or clarifying question — never wrapped in the full relatório
+    // structure, and never styled as an error just because there's no respostaEstruturada.
+    return (
+      <div className="rounded-2xl rounded-tl-sm border border-border bg-white p-4 text-sm text-text-primary shadow-sm sm:p-5">
+        <p className="whitespace-pre-wrap break-words">{mensagem.conteudo}</p>
+      </div>
+    );
+  }
+
   if (mensagem.status === "em_execucao" || mensagem.status === "pendente") {
     return (
       <div className="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-border bg-white p-4 text-sm text-text-secondary shadow-sm">

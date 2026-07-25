@@ -33,6 +33,7 @@ describe("GET /api/triad3/neo/conversas/[id]/mensagens", () => {
       usuarioId: "u1",
       titulo: "t",
       resumoContexto: null,
+      entidadesAtivas: null,
       status: "ativa",
       criadoEm: "t",
       atualizadoEm: "t",

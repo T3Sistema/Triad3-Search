@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { neoAnswerSchema } from "@/lib/neo/answer";
+import { neoClarificationFormSchema } from "@/lib/neo/clarification-form";
 
 /**
  * Discriminated event stream sent from the Neo execution endpoint (SSE) to
@@ -62,6 +63,20 @@ export const neoEventoRespostaConcluidaSchema = z.object({
   resposta: neoAnswerSchema,
 });
 
+/** A plain conversational reply or clarifying question — never wrapped in the full relatório structure. */
+export const neoEventoRespostaMensagemSchema = z.object({
+  tipo: z.literal("resposta.mensagem"),
+  mensagemId: z.string(),
+  texto: z.string(),
+});
+
+export const neoEventoFormularioNecessarioSchema = z.object({
+  tipo: z.literal("formulario.necessario"),
+  execucaoId: z.string(),
+  mensagemId: z.string(),
+  formulario: neoClarificationFormSchema,
+});
+
 export const neoEventoParcialSchema = z.object({
   tipo: z.literal("execucao.parcial"),
   motivo: z.string(),
@@ -95,8 +110,10 @@ export const neoEventSchema = z.discriminatedUnion("tipo", [
   neoEventoEtapaConcluidaSchema,
   neoEventoEtapaFalhouSchema,
   neoEventoConfirmacaoNecessariaSchema,
+  neoEventoFormularioNecessarioSchema,
   neoEventoRespostaDeltaSchema,
   neoEventoRespostaConcluidaSchema,
+  neoEventoRespostaMensagemSchema,
   neoEventoParcialSchema,
   neoEventoCanceladaSchema,
   neoEventoFalhouSchema,

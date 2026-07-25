@@ -51,6 +51,7 @@ describe("/api/triad3/neo/conversas", () => {
       usuarioId: "u1",
       titulo: "Nova conversa",
       resumoContexto: null,
+      entidadesAtivas: null,
       status: "ativa",
       criadoEm: "t",
       atualizadoEm: "t",

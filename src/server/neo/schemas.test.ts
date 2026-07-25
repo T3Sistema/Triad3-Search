@@ -1,47 +1,49 @@
 import { describe, expect, it } from "vitest";
-import { neoPlanSchema, neoResumoConversaSchema, neoTituloConversaSchema } from "./schemas";
+import { neoAgentTurnSchema, neoResumoConversaSchema, neoTituloConversaSchema } from "./schemas";
+import { baseNeoAnswer } from "@/lib/neo/answer-fixtures";
 
-function validPlan() {
-  return {
-    objetivoInterpretado: "Reunir informações públicas sobre uma empresa.",
-    ambiguidadeBloqueante: false,
-    perguntaNecessaria: null,
-    etapasPlanejadas: ["Localizar fontes", "Ler páginas relevantes"],
-    dadosNecessarios: ["Site oficial", "Notícias recentes"],
-    criteriosConclusao: ["Ao menos duas fontes confiáveis"],
-    ferramentasProvaveis: ["pesquisar_web", "capturar_pagina"],
-    execucaoParalelaPossivel: true,
-    riscoConfusaoEntidades: null,
-    camposSolicitados: ["site oficial", "notícias"],
-    formatoRelatorioEsperado: "Perfil da empresa com fatos e fontes",
-  };
-}
-
-describe("neoPlanSchema", () => {
-  it("accepts a well-formed plan", () => {
-    expect(neoPlanSchema.safeParse(validPlan()).success).toBe(true);
+describe("neoAgentTurnSchema", () => {
+  it("accepts a plain conversational reply", () => {
+    expect(neoAgentTurnSchema.safeParse({ tipo: "resposta", texto: "Até agora encontrei o CNPJ e o Instagram oficial." }).success).toBe(true);
   });
 
-  it("rejects a plan referencing a tool name outside the registry's known list", () => {
-    const plan = { ...validPlan(), ferramentasProvaveis: ["excluir_banco_de_dados"] };
-    expect(neoPlanSchema.safeParse(plan).success).toBe(false);
+  it("accepts a clarifying question", () => {
+    expect(neoAgentTurnSchema.safeParse({ tipo: "pergunta", texto: "Você está falando da empresa de Maceió ou do domínio carango.com.br?" }).success).toBe(true);
   });
 
-  it("requires perguntaNecessaria to be present (string or explicit null), never omitted", () => {
-    const { perguntaNecessaria, ...rest } = validPlan();
-    void perguntaNecessaria;
-    expect(neoPlanSchema.safeParse(rest).success).toBe(false);
+  it("accepts an inline clarification form", () => {
+    const turno = {
+      tipo: "formulario",
+      formulario: {
+        titulo: "Configurar monitoramento",
+        explicacao: "Preciso de mais alguns dados antes de criar o monitoramento.",
+        campos: [
+          { id: "url", rotulo: "URL a monitorar", descricao: null, tipo: "url", obrigatorio: true, valorSugerido: null, opcoes: [] },
+          { id: "frequencia", rotulo: "Frequência", descricao: null, tipo: "selecao", obrigatorio: true, valorSugerido: "diaria", opcoes: [{ valor: "diaria", rotulo: "Diária" }] },
+        ],
+        acaoConfirmacao: "Iniciar monitoramento",
+      },
+    };
+    expect(neoAgentTurnSchema.safeParse(turno).success).toBe(true);
   });
 
-  it("accepts a blocking-ambiguity plan with a follow-up question", () => {
-    const plan = { ...validPlan(), ambiguidadeBloqueante: true, perguntaNecessaria: "Qual empresa, exatamente?" };
-    expect(neoPlanSchema.safeParse(plan).success).toBe(true);
+  it("accepts a final consolidated relatório (NeoAnswer v2)", () => {
+    const turno = { tipo: "relatorio", relatorio: baseNeoAnswer() };
+    expect(neoAgentTurnSchema.safeParse(turno).success).toBe(true);
+  });
+
+  it("rejects a turno with an unknown tipo", () => {
+    expect(neoAgentTurnSchema.safeParse({ tipo: "outro", texto: "x" }).success).toBe(false);
+  });
+
+  it("rejects a resposta turno missing texto", () => {
+    expect(neoAgentTurnSchema.safeParse({ tipo: "resposta" }).success).toBe(false);
   });
 });
 
 describe("neoResumoConversaSchema / neoTituloConversaSchema", () => {
   it("accept their minimal shapes", () => {
-    expect(neoResumoConversaSchema.safeParse({ resumo: "Resumo da investigação." }).success).toBe(true);
-    expect(neoTituloConversaSchema.safeParse({ titulo: "Investigação sobre X" }).success).toBe(true);
+    expect(neoResumoConversaSchema.safeParse({ resumo: "Resumo da análise em andamento." }).success).toBe(true);
+    expect(neoTituloConversaSchema.safeParse({ titulo: "Análise sobre a Empresa X" }).success).toBe(true);
   });
 });
